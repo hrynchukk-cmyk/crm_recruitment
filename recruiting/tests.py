@@ -363,3 +363,22 @@ class InlineNoteTests(BaseTestCase):
         # Те саме посилання вдруге — не дублюється.
         self.client.post(url, {**data, "phone": "0500000000"})
         self.assertEqual(self.vacancy.applications.count(), 1)
+
+
+class VacancyFormTests(BaseTestCase):
+    def test_create_vacancy_with_new_company(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("recruiting:vacancy_create"),
+            {"new_company": "Нове підприємство", "title": "Комірник", "city": "Львів", "headcount": 1, "status": "open"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Vacancy.objects.get(title="Комірник").company.name, "Нове підприємство")
+
+    def test_company_required(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("recruiting:vacancy_create"), {"title": "Комірник", "city": "Львів", "headcount": 1, "status": "open"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Vacancy.objects.filter(title="Комірник").exists())

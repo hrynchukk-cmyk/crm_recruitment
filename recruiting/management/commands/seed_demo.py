@@ -1,7 +1,8 @@
 import random
 
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from recruiting.models import Application, Candidate, Company, Vacancy
@@ -22,7 +23,15 @@ EXTRA_NAMES = [
 class Command(BaseCommand):
     help = "Заповнює базу демонстраційними даними (лише для локальної розробки)."
 
+    def add_arguments(self, parser):
+        parser.add_argument("--force", action="store_true", help="Запустити навіть без DJANGO_DEBUG=1")
+
     def handle(self, *args, **options):
+        if not settings.DEBUG and not options["force"]:
+            raise CommandError(
+                "Демо-дані створюють користувача admin/admin — не запускайте це на робочому сервері. "
+                "Для локальної спроби додайте --force."
+            )
         User = get_user_model()
         admin, created = User.objects.get_or_create(
             username="admin", defaults={"is_staff": True, "is_superuser": True, "first_name": "Адмін"}

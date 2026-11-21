@@ -64,34 +64,65 @@
 
 Python 3.13, Django 5.2, PostgreSQL (у продакшні) або SQLite (локально), серверні шаблони без JS-фреймворків. Інтерфейс українською, часовий пояс — Київ.
 
-## Локальний запуск
+## Запуск на своєму комп'ютері (щоб спробувати)
+
+Потрібен лише [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows / macOS) — встановіть і запустіть його.
+
+1. Завантажте код: на GitHub перейдіть у гілку `crm-mvp` → **Code → Download ZIP** і розпакуйте архів. Або через термінал:
+   ```bash
+   git clone -b crm-mvp https://github.com/hrynchukk-cmyk/crm_recruitment.git
+   ```
+2. У папці проєкту скопіюйте файл `.env.example` у `.env` і відкрийте його в текстовому редакторі. Поміняйте `DJANGO_SECRET_KEY` (будь-який довгий випадковий рядок), `DJANGO_SUPERUSER_PASSWORD` (ваш пароль для входу) і `POSTGRES_PASSWORD`.
+3. У терміналі в папці проєкту:
+   ```bash
+   docker compose up -d --build
+   ```
+   Перший запуск триває кілька хвилин.
+4. Відкрийте http://localhost:8000 і увійдіть як `admin` з паролем із `.env`.
+
+- **Зупинити:** `docker compose down`. Дані зберігаються й будуть на місці після наступного `docker compose up -d`.
+- **Оновити до нової версії коду:** завантажте свіжий код і знову виконайте `docker compose up -d --build`.
+
+### Перші кроки в CRM
+
+1. **«+ Нова вакансія»**: назва посади, підприємство (нове можна вписати прямо у формі) і посилання на вакансію на Work.ua.
+2. На сторінці вакансії натисніть **«Імпорт з таблиці»** і завантажте CSV з відповідної вкладки Google Таблиці. Або додавайте людей кнопкою **«+ Кандидат»**.
+3. Акаунти для рекрутерів створюються в **Адмінка → Користувачі → Додати користувача**.
+
+## Розгортання на сервері (для всієї команди)
+
+Щоб CRM була доступна рекрутерам з будь-якого комп'ютера чи телефона, її розміщують на сервері з HTTPS. Є два варіанти:
+
+**A. Хмарний хостинг з Docker (Render, Railway тощо)** — без адміністрування сервера.
+Створіть сервіс із цього репозиторію (він збирається з `Dockerfile`), додайте базу PostgreSQL і задайте змінні:
+
+| Змінна | Значення |
+|---|---|
+| `DATABASE_URL` | видає хостинг для бази PostgreSQL |
+| `DJANGO_SECRET_KEY` | довгий випадковий рядок |
+| `DJANGO_ALLOWED_HOSTS` | домен сервісу, напр. `crm-xxxx.onrender.com` |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://` + той самий домен |
+| `DJANGO_SECURE_COOKIES` | `1` |
+| `DJANGO_SUPERUSER_USERNAME` / `DJANGO_SUPERUSER_PASSWORD` | перший адміністратор, створюється автоматично |
+
+Порт (`PORT`) хостинг задає сам.
+
+**B. Власний VPS.** Встановіть Docker і зробіть усе як у розділі вище. У `.env` вкажіть свій домен у `DJANGO_ALLOWED_HOSTS` і `DJANGO_CSRF_TRUSTED_ORIGINS` та `DJANGO_SECURE_COOKIES=1`. Перед застосунком поставте HTTPS-проксі (наприклад, Caddy).
+
+**Резервні копії бази:** на хостингу вмикаються в налаштуваннях PostgreSQL. На VPS використовуйте `docker compose exec db pg_dump -U crm crm > backup.sql`.
+
+## Для розробників
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 export DJANGO_DEBUG=1
 .venv/bin/python manage.py migrate
-.venv/bin/python manage.py seed_demo   # демо-дані + користувач admin/admin
+.venv/bin/python manage.py seed_demo   # демо-дані + користувач admin/admin (лише з DJANGO_DEBUG=1)
 .venv/bin/python manage.py runserver
 ```
 
-Відкрийте http://127.0.0.1:8000.
-
-Тести:
-
-```bash
-DJANGO_DEBUG=1 .venv/bin/python manage.py test
-```
-
-## Розгортання (Docker)
-
-```bash
-cp .env.example .env   # заповніть секрети, домен, паролі
-docker compose up -d --build
-docker compose exec web python manage.py createsuperuser
-```
-
-Застосунок слухає порт 8000. Перед ним варто поставити HTTPS-проксі (Caddy, Nginx або хостинг з TLS) і вказати домен у `DJANGO_ALLOWED_HOSTS` та `DJANGO_CSRF_TRUSTED_ORIGINS`.
+Тести: `DJANGO_DEBUG=1 .venv/bin/python manage.py test`
 
 ## Структура
 
@@ -101,5 +132,6 @@ recruiting/models.py         підприємства, вакансії, кан�
 recruiting/services.py       зміна статусу, нотатки, додавання кандидата (з дедуплікацією)
 recruiting/integrations/     інтеграція з Work.ua
 recruiting/views.py          сторінки рекрутера
-recruiting/management/       команди sync_workua і seed_demo
+recruiting/importer.py       імпорт CSV з Google Таблиці
+recruiting/management/       команди sync_workua, ensure_admin, seed_demo
 ```

@@ -71,8 +71,24 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# База даних: PostgreSQL, якщо задано POSTGRES_DB, інакше SQLite (для локальної розробки).
-if os.environ.get("POSTGRES_DB"):
+# База даних: DATABASE_URL (так її видають Render, Railway тощо) або POSTGRES_*;
+# якщо нічого не задано — SQLite (для локальної розробки).
+if os.environ.get("DATABASE_URL"):
+    from urllib.parse import unquote, urlparse
+
+    _db = urlparse(os.environ["DATABASE_URL"])
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": _db.path.lstrip("/"),
+            "USER": unquote(_db.username or ""),
+            "PASSWORD": unquote(_db.password or ""),
+            "HOST": _db.hostname or "",
+            "PORT": str(_db.port or 5432),
+            "CONN_MAX_AGE": 60,
+        }
+    }
+elif os.environ.get("POSTGRES_DB"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",

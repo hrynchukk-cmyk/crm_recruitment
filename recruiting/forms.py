@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import Application, Candidate, Vacancy, parse_workua_link
+from .models import Application, Candidate, Company, Vacancy, parse_workua_link
 
 
 class VacancyForm(forms.ModelForm):
@@ -12,10 +12,18 @@ class VacancyForm(forms.ModelForm):
         help_text="Наприклад: https://www.work.ua/jobs/1234567/ — потрібно для підтягування відгуків.",
     )
 
+    new_company = forms.CharField(
+        label="…або нове підприємство",
+        max_length=255,
+        required=False,
+        help_text="Якщо підприємства ще немає у списку — впишіть назву, і його буде створено.",
+    )
+
     class Meta:
         model = Vacancy
         fields = [
             "company",
+            "new_company",
             "title",
             "city",
             "salary",
@@ -26,6 +34,22 @@ class VacancyForm(forms.ModelForm):
             "description",
         ]
         widgets = {"description": forms.Textarea(attrs={"rows": 5})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["company"].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        name = (cleaned.get("new_company") or "").strip()
+        if name:
+            # Створюємо одразу: модельна валідація вакансії потребує збереженого підприємства.
+            # Повторне введення тієї ж назви не створить дубліката.
+            company = Company.objects.filter(name__iexact=name).first()
+            cleaned["company"] = company or Company.objects.create(name=name)
+        elif not cleaned.get("company"):
+            self.add_error("company", "Виберіть підприємство або впишіть нове.")
+        return cleaned
 
     def clean_workua_job_id(self):
         value = self.cleaned_data["workua_job_id"].strip()
