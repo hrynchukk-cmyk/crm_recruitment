@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Вакансії — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Вакансії</h1>
+  <a class="btn primary" href="{% url 'recruiting:vacancy_create' %}">+ Нова вакансія</a>
+</div>
+
+<div class="filters">
+  {% for value, label in statuses %}
+    <a class="chip {% if status == value %}active{% endif %}" href="?status={{ value }}">{{ label }}</a>
+  {% endfor %}
+  <a class="chip {% if status == 'all' %}active{% endif %}" href="?status=all">Усі</a>
+  <a class="chip {% if request.GET.mine %}active{% endif %}" href="?status={{ status }}{% if not request.GET.mine %}&mine=1{% endif %}">Лише мої</a>
+</div>
+
+<table class="table">
+  <thead>
+    <tr><th>Посада</th><th>Підприємство</th><th>Рекрутер</th><th class="num">Нові</th><th class="num">В роботі</th><th class="num">Вийшли / треба</th><th class="num">Усього</th></tr>
+  </thead>
+  <tbody>
+  {% for v in vacancies %}
+    <tr>
+      <td><a href="{{ v.get_absolute_url }}"><strong>{{ v.title }}</strong></a>
+        {% if v.status != 'open' %}<span class="badge">{{ v.get_status_display }}</span>{% endif %}
+        <div class="muted small">{{ v.city }}{% if v.salary %} · {{ v.salary }}{% endif %}</div></td>
+      <td>{{ v.company }}</td>
+      <td>{% if v.recruiter %}{{ v.recruiter.get_full_name|default:v.recruiter.username }}{% else %}—{% endif %}</td>
+      <td class="num">{% if v.new %}<span class="badge stage-new">{{ v.new }}</span>{% else %}0{% endif %}</td>
+      <td class="num">{{ v.in_progress }}</td>
+      <td class="num">{{ v.hired }} / {{ v.headcount }}</td>
+      <td class="num">{{ v.total }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7" class="muted">Вакансій немає.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ candidate.full_name }} — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="muted small" href="{{ application.vacancy.get_absolute_url }}">← {{ application.vacancy.title }} ({{ application.vacancy.company }})</a>
+    <h1>{{ candidate.full_name }} <span class="badge stage-{{ application.stage }}">{{ application.get_stage_display }}</span></h1>
+  </div>
+  <a class="btn" href="{% url 'recruiting:candidate_edit' candidate.pk %}?next={{ request.path|urlencode }}">Редагувати дані</a>
+</div>
+
+<div class="grid">
+  <section class="card">
+    <h2>Контакти</h2>
+    <dl class="props">
+      <dt>Телефон</dt><dd>{% if candidate.phone %}<a href="tel:{{ candidate.phone }}">{{ candidate.phone }}</a>{% else %}—{% endif %}</dd>
+      <dt>Email</dt><dd>{{ candidate.email|default:"—" }}</dd>
+      <dt>Місто</dt><dd>{{ candidate.city|default:"—" }}</dd>
+      <dt>Рік народження</dt><dd>{{ candidate.birth_year|default:"—" }}</dd>
+      <dt>Джерело</dt><dd>{{ application.get_source_display }}</dd>
+      <dt>Відгукнувся</dt><dd>{{ application.applied_at|date:"d.m.Y H:i"|default:"—" }}</dd>
+      {% if candidate.resume_url %}<dt>Резюме</dt><dd><a href="{{ candidate.resume_url }}" target="_blank" rel="noopener">відкрити ↗</a></dd>{% endif %}
+    </dl>
+    {% if candidate.notes %}<h3>Нотатки про кандидата</h3><p class="pre">{{ candidate.notes }}</p>{% endif %}
+    {% if application.cover_letter %}<h3>Супровідний лист</h3><p class="pre">{{ application.cover_letter }}</p>{% endif %}
+    {% if candidate.resume_text %}<h3>Резюме</h3><div class="pre resume">{{ candidate.resume_text }}</div>{% endif %}
+    {% if other_applications %}
+      <h3>Інші вакансії цього кандидата</h3>
+      <ul>{% for o in other_applications %}<li><a href="{{ o.get_absolute_url }}">{{ o.vacancy.title }} — {{ o.vacancy.company }}</a> · {{ o.get_stage_display }}</li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+
+  <section>
+    <div class="card">
+      <h2>Статус</h2>
+      <form method="post" action="{% url 'recruiting:application_stage' application.pk %}">
+        {% csrf_token %}
+        {{ stage_form.stage }}
+        {{ stage_form.comment }}
+        <button class="btn primary">Зберегти</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Співбесіда</h2>
+      <form method="post" action="{% url 'recruiting:application_interview' application.pk %}" class="row">
+        {% csrf_token %}
+        {{ interview_form.interview_at }}
+        <button class="btn">Зберегти</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Нотатка</h2>
+      <form method="post" action="{% url 'recruiting:application_note' application.pk %}">
+        {% csrf_token %}
+        {{ note_form.text }}
+        <button class="btn">Додати</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Історія</h2>
+      <ul class="timeline">
+      {% for e in events %}
+        <li>
+          <div class="muted small">{{ e.created_at|date:"d.m.Y H:i" }} · {% if e.author %}{{ e.author.get_full_name|default:e.author.username }}{% else %}система{% endif %}</div>
+          {% if e.kind == "stage" %}
+            <div>{{ e.get_from_stage_display }} → <strong>{{ e.get_to_stage_display }}</strong></div>
+          {% elif e.kind == "created" %}
+            <div><strong>Додано на вакансію</strong></div>
+          {% endif %}
+          {% if e.text %}<div class="pre">{{ e.text }}</div>{% endif %}
+        </li>
+      {% endfor %}
+      </ul>
+    </div>
+  </section>
+</div>
+{% endblock %}

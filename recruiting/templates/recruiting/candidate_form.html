@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{% if candidate %}{{ candidate.full_name }}{% else %}Новий кандидат{% endif %} — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="card narrow-lg">
+  {% if vacancy %}
+    <a class="muted small" href="{{ vacancy.get_absolute_url }}">← {{ vacancy.title }}</a>
+    <h1>Додати кандидата</h1>
+    <p class="muted">Якщо кандидат з таким телефоном або email уже є в базі, його буде додано на вакансію без створення дубліката.</p>
+  {% else %}
+    <h1>{{ candidate.full_name }}</h1>
+  {% endif %}
+  <form method="post" class="form">
+    {% csrf_token %}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    {% include "recruiting/_form_fields.html" %}
+    <div class="actions"><button class="btn primary">Зберегти</button></div>
+  </form>
+</div>
+{% endblock %}

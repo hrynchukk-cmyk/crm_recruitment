@@ -1,0 +1,36 @@
+{% load static %}<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CRM рекрутингу{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{% url 'recruiting:vacancy_list' %}">CRM рекрутингу</a>
+    {% if user.is_authenticated %}
+      <nav>
+        <a href="{% url 'recruiting:vacancy_list' %}">Вакансії</a>
+        {% if user.is_staff %}<a href="{% url 'admin:index' %}">Адмінка</a>{% endif %}
+        <span class="muted">{{ user.get_full_name|default:user.username }}</span>
+        <form method="post" action="{% url 'logout' %}" class="inline">{% csrf_token %}<button class="link">Вийти</button></form>
+      </nav>
+    {% endif %}
+  </header>
+  <main>
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}<li class="msg-{{ message.tags }}">{{ message }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    // Автоматично зберігати статус при виборі у списку кандидатів.
+    document.querySelectorAll("select[data-autosubmit]").forEach(function (el) {
+      el.addEventListener("change", function () { el.form.submit(); });
+    });
+  </script>
+</body>
+</html>

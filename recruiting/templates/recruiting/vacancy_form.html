@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{% if vacancy %}{{ vacancy.title }}{% else %}Нова вакансія{% endif %} — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="card narrow-lg">
+  <h1>{% if vacancy %}Редагування вакансії{% else %}Нова вакансія{% endif %}</h1>
+  <form method="post" class="form">
+    {% csrf_token %}
+    {% include "recruiting/_form_fields.html" %}
+    <div class="actions">
+      <button class="btn primary">Зберегти</button>
+      <a class="btn" href="{% if vacancy %}{{ vacancy.get_absolute_url }}{% else %}{% url 'recruiting:vacancy_list' %}{% endif %}">Скасувати</a>
+    </div>
+  </form>
+  {% if user.is_staff %}<p class="muted small">Нове підприємство можна додати в <a href="{% url 'admin:recruiting_company_add' %}">адмінці</a>.</p>{% endif %}
+</div>
+{% endblock %}
