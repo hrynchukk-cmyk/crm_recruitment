@@ -11,9 +11,11 @@ urlpatterns = [
     path("vacancies/<int:pk>/edit/", views.vacancy_form, name="vacancy_edit"),
     path("vacancies/<int:pk>/sync-workua/", views.vacancy_sync_workua, name="vacancy_sync_workua"),
     path("vacancies/<int:pk>/add-candidate/", views.vacancy_add_candidate, name="vacancy_add_candidate"),
+    path("vacancies/<int:pk>/import/", views.vacancy_import, name="vacancy_import"),
     path("applications/<int:pk>/", views.application_detail, name="application_detail"),
     path("applications/<int:pk>/stage/", views.application_stage, name="application_stage"),
     path("applications/<int:pk>/note/", views.application_note, name="application_note"),
-    path("applications/<int:pk>/interview/", views.application_interview, name="application_interview"),
+    path("applications/<int:pk>/note-inline/", views.application_note_inline, name="application_note_inline"),
+    path("applications/<int:pk>/channel/", views.application_channel, name="application_channel"),
     path("candidates/<int:pk>/edit/", views.candidate_edit, name="candidate_edit"),
 ]

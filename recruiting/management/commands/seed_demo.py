@@ -13,6 +13,11 @@ NAMES = [
     "Олег Романюк", "Світлана Дячук", "Роман Іваницький", "Христина Лозинська",
 ]
 
+EXTRA_NAMES = [
+    "Віктор Гаврилюк", "Леся Стасюк", "Степан Федорович", "Ольга Мартинюк", "Ігор Сидор",
+    "Анна Кузьмич", "Микола Возняк", "Тетяна Демків", "Павло Яремко", "Софія Гуменюк",
+]
+
 
 class Command(BaseCommand):
     help = "Заповнює базу демонстраційними даними (лише для локальної розробки)."
@@ -33,6 +38,10 @@ class Command(BaseCommand):
 
         vacancies = [
             Vacancy.objects.get_or_create(
+                company=logistics, title="Комірник",
+                defaults={"salary": "від 24 000 грн", "headcount": 2, "recruiter": admin, "workua_job_id": "1000001"},
+            )[0],
+            Vacancy.objects.get_or_create(
                 company=plant, title="Пекар", defaults={"salary": "від 22 000 грн", "headcount": 3, "recruiter": admin}
             )[0],
             Vacancy.objects.get_or_create(
@@ -45,21 +54,29 @@ class Command(BaseCommand):
         ]
 
         stages = Application.Stage.values
-        for i, name in enumerate(NAMES):
+        channels = Application.Channel.values
+        for i, name in enumerate(NAMES + EXTRA_NAMES):
             candidate, _ = Candidate.objects.get_or_create(
                 full_name=name,
                 defaults={
                     "phone": f"+38067{1000000 + i * 7919:07d}",
                     "city": "Львів",
-                    "birth_year": rng.randint(1970, 2004),
-                    "source": Candidate.Source.WORKUA if i % 3 else Candidate.Source.MANUAL,
+                    "age": rng.randint(19, 55),
+                    "district": rng.choice(Candidate.District.values + [""]),
+                    "source": Candidate.Source.WORKUA,
+                    "resume_url": f"https://www.work.ua/resumes/{7000000 + i}/",
                     "resume_text": "Досвід роботи на виробництві 2 роки.\nГрафік: позмінний.",
                 },
             )
-            vacancy = vacancies[i % len(vacancies)]
+            # Половина людей — на «Комірника», щоб було видно всі три розділи.
+            vacancy = vacancies[0] if i % 2 == 0 else vacancies[1 + (i // 2) % (len(vacancies) - 1)]
             application, created = attach_candidate(
-                vacancy, candidate, source=candidate.source, applied_at=timezone.now() - timezone.timedelta(days=i)
+                vacancy,
+                candidate,
+                channel=channels[i % len(channels)],
+                source=candidate.source,
+                applied_at=timezone.now() - timezone.timedelta(hours=7 * i),
             )
-            if created:
+            if created and i % 4:
                 change_stage(application, rng.choice(stages), user=admin)
         self.stdout.write(self.style.SUCCESS("Демо-дані готові."))

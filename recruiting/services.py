@@ -7,7 +7,14 @@
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Application, ApplicationEvent, Candidate, Vacancy, normalize_phone
+from .models import (
+    Application,
+    ApplicationEvent,
+    Candidate,
+    Vacancy,
+    normalize_phone,
+    parse_workua_resume_id,  # noqa: F401 — реекспорт для зручності
+)
 
 
 @transaction.atomic
@@ -63,6 +70,7 @@ def attach_candidate(
     vacancy: Vacancy,
     candidate: Candidate,
     *,
+    channel: str = Application.Channel.SOURCED,
     source: str = Candidate.Source.MANUAL,
     user=None,
     workua_response_id: str = "",
@@ -74,6 +82,7 @@ def attach_candidate(
         vacancy=vacancy,
         candidate=candidate,
         defaults={
+            "channel": channel,
             "source": source,
             "workua_response_id": workua_response_id,
             "cover_letter": cover_letter,
@@ -86,9 +95,28 @@ def attach_candidate(
             kind=ApplicationEvent.Kind.CREATED,
             author=user,
             to_stage=application.stage,
-            text=f"Джерело: {application.get_source_display()}",
+            text=f"Розділ: {application.get_channel_display()}",
         )
-    elif workua_response_id and not application.workua_response_id:
+        return application, created
+
+    update_fields = []
+    if workua_response_id and not application.workua_response_id:
         application.workua_response_id = workua_response_id
-        application.save(update_fields=["workua_response_id", "updated_at"])
+        update_fields.append("workua_response_id")
+    # Рекомендований або підібраний кандидат сам відгукнувся — переносимо у «Відгуки».
+    if channel == Application.Channel.RESPONSE and application.channel != channel:
+        old_channel = application.get_channel_display()
+        application.channel = channel
+        update_fields.append("channel")
+        if cover_letter and not application.cover_letter:
+            application.cover_letter = cover_letter
+            update_fields.append("cover_letter")
+        ApplicationEvent.objects.create(
+            application=application,
+            kind=ApplicationEvent.Kind.NOTE,
+            author=user,
+            text=f"Кандидат сам відгукнувся на вакансію (був у розділі «{old_channel}»).",
+        )
+    if update_fields:
+        application.save(update_fields=[*update_fields, "updated_at"])
     return application, created

@@ -84,10 +84,60 @@ textarea { width: 100%; }
 .stage-select { border-width: 1px; font-size: .88rem; padding: 5px 8px; }
 .stage-new { background: #e3ecff; color: #1f4fbf; }
 .stage-no_answer { background: #f1f1f1; color: #5b5b5b; }
-.stage-contacted { background: #e6f4fb; color: #19678a; }
+.stage-viber { background: #efe7fb; color: #6a3bbf; }
+.stage-callback { background: #e6f4fb; color: #19678a; }
+.stage-thinking { background: #f3e8fb; color: #7a3aa0; }
 .stage-interview { background: #fff3d6; color: #8a5a00; }
-.stage-sent_to_client { background: #f1e8ff; color: #6a3bbf; }
-.stage-offer { background: #e3f7ea; color: #1d7a43; }
+.stage-no_show { background: #ffe9dc; color: #9a4a12; }
+.stage-passed { background: #e3f7ea; color: #1d7a43; }
 .stage-hired { background: #c9eed6; color: #11592f; }
 .stage-reserve { background: #eef0f3; color: #4d5566; }
-.stage-rejected_by_us, .stage-rejected_by_candidate { background: #fbe9e9; color: #a32a2a; }
+.stage-rejected_by_us { background: #fde8e8; color: #b42323; }
+.stage-rejected_by_candidate { background: #b91c1c; color: #fff; }
+.btn[class*="stage-"] { border-color: transparent; }
+.btn[class*="stage-"]:hover { border-color: currentColor; }
+.btn.current { outline: 2px solid currentColor; }
+
+/* Розділи вакансії: Відгуки / Рекомендовані / Підібрані */
+.sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.section { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.section:hover { text-decoration: none; border-color: var(--muted); }
+.section.active { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.section-label { font-weight: 600; flex: 1 1 100%; }
+.section-count { font-size: 1.4rem; font-weight: 700; }
+
+.quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.quick .btn { padding: 7px 11px; font-size: .9rem; }
+.nowrap { white-space: nowrap; }
+.phone { font-size: 1.1rem; font-weight: 600; }
+details.card summary { cursor: pointer; font-weight: 600; }
+.form [id$="channel"] > div, .form #id_channel > div { margin-bottom: 4px; }
+.form #id_channel label { font-weight: 400; display: flex; align-items: center; gap: 8px; }
+.form #id_channel input { width: auto; }
+.stage-form .field { margin-bottom: 10px; }
+@media (max-width: 600px) {
+  .sections { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .section { padding: 8px 10px; gap: 2px 6px; }
+  .section-label { font-size: .85rem; }
+  .section-count { font-size: 1.1rem; }
+  .section .badge { font-size: .72rem; }
+}
+
+/* Таблиця кандидатів як у Google Таблиці */
+.viber { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #efe7fb; color: #6a3bbf; font-size: .78rem; font-weight: 600; }
+.viber:hover { text-decoration: none; background: #e2d4f8; }
+.note-col { min-width: 220px; width: 32%; }
+.note-input { width: 100%; resize: none; overflow: hidden; border-color: transparent; background: transparent; padding: 6px 8px; font-size: .92rem; line-height: 1.35; }
+.note-input:hover { border-color: var(--border); }
+.note-input:focus { border-color: var(--primary); background: #fff; outline: none; }
+.note-input.saved { box-shadow: inset 3px 0 0 var(--ok); }
+.note-input.failed { box-shadow: inset 3px 0 0 var(--danger); }
+.card .note-input { border-color: var(--border); background: #fff; }
+.steps { padding-left: 20px; line-height: 1.6; }
+@media (max-width: 760px) {
+  .candidates td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-size: .8rem; }
+  .candidates td[data-label="Ім'я"]::before, .candidates td[data-label="Статус"]::before { content: none; }
+  .note-col { width: 100%; }
+  .note-input { border-color: var(--border); }
+}

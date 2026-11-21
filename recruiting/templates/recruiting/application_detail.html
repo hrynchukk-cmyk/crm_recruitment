@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="muted small" href="{{ application.vacancy.get_absolute_url }}">← {{ application.vacancy.title }} ({{ application.vacancy.company }})</a>
+    <a class="muted small" href="{{ application.vacancy.get_absolute_url }}?channel={{ application.channel }}">← {{ application.vacancy.title }} ({{ application.vacancy.company }}) · {{ application.get_channel_display }}</a>
     <h1>{{ candidate.full_name }} <span class="badge stage-{{ application.stage }}">{{ application.get_stage_display }}</span></h1>
   </div>
   <a class="btn" href="{% url 'recruiting:candidate_edit' candidate.pk %}?next={{ request.path|urlencode }}">Редагувати дані</a>
@@ -13,15 +13,24 @@
   <section class="card">
     <h2>Контакти</h2>
     <dl class="props">
-      <dt>Телефон</dt><dd>{% if candidate.phone %}<a href="tel:{{ candidate.phone }}">{{ candidate.phone }}</a>{% else %}—{% endif %}</dd>
-      <dt>Email</dt><dd>{{ candidate.email|default:"—" }}</dd>
+      <dt>Телефон</dt><dd>{% if candidate.phone %}<a class="phone" href="tel:{{ candidate.phone }}">📞 {{ candidate.phone_display }}</a>
+        <a class="viber" href="{{ candidate.viber_url }}">Написати у Viber</a>{% else %}—{% endif %}</dd>
+      <dt>Вік</dt><dd>{{ candidate.age|default:"—" }}</dd>
+      <dt>Район</dt><dd>{{ candidate.get_district_display|default:"—" }}</dd>
       <dt>Місто</dt><dd>{{ candidate.city|default:"—" }}</dd>
-      <dt>Рік народження</dt><dd>{{ candidate.birth_year|default:"—" }}</dd>
-      <dt>Джерело</dt><dd>{{ application.get_source_display }}</dd>
-      <dt>Відгукнувся</dt><dd>{{ application.applied_at|date:"d.m.Y H:i"|default:"—" }}</dd>
+      {% if candidate.email %}<dt>Email</dt><dd>{{ candidate.email }}</dd>{% endif %}
+      <dt>Розділ</dt><dd>{{ application.get_channel_display }}</dd>
+      <dt>Додано</dt><dd>{{ application.applied_at|date:"d.m.Y H:i"|default:"—" }}</dd>
+      {% if application.interview_at %}<dt>Співбесіда</dt><dd><strong>{{ application.interview_at|date:"d.m.Y H:i" }}</strong></dd>{% endif %}
       {% if candidate.resume_url %}<dt>Резюме</dt><dd><a href="{{ candidate.resume_url }}" target="_blank" rel="noopener">відкрити ↗</a></dd>{% endif %}
     </dl>
-    {% if candidate.notes %}<h3>Нотатки про кандидата</h3><p class="pre">{{ candidate.notes }}</p>{% endif %}
+    <h3>Примітка</h3>
+    <form method="post" action="{% url 'recruiting:application_note_inline' application.pk %}" data-autosave>
+      {% csrf_token %}
+      <textarea name="note" rows="3" class="note-input" placeholder="Коротко: досвід, що уточнити…">{{ application.note }}</textarea>
+      <noscript><button class="btn">Зберегти</button></noscript>
+    </form>
+    {% if candidate.notes %}<h3>Загальні нотатки про людину</h3><p class="pre">{{ candidate.notes }}</p>{% endif %}
     {% if application.cover_letter %}<h3>Супровідний лист</h3><p class="pre">{{ application.cover_letter }}</p>{% endif %}
     {% if candidate.resume_text %}<h3>Резюме</h3><div class="pre resume">{{ candidate.resume_text }}</div>{% endif %}
     {% if other_applications %}
@@ -31,31 +40,41 @@
   </section>
 
   <section>
-    <div class="card">
-      <h2>Статус</h2>
-      <form method="post" action="{% url 'recruiting:application_stage' application.pk %}">
+    <div class="card" id="status">
+      <h2>Результат дзвінка</h2>
+      <div class="quick">
+        {% for value, label in quick_stages %}
+          {% if value == 'interview' %}
+            <a class="btn stage-{{ value }}" href="?stage=interview#status">{{ label }}</a>
+          {% else %}
+          <form method="post" action="{% url 'recruiting:application_stage' application.pk %}" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="stage" value="{{ value }}">
+            <button class="btn stage-{{ value }}{% if application.stage == value %} current{% endif %}">{{ label }}</button>
+          </form>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <form method="post" action="{% url 'recruiting:application_stage' application.pk %}" class="form stage-form">
         {% csrf_token %}
-        {{ stage_form.stage }}
-        {{ stage_form.comment }}
+        <div class="field"><label for="{{ stage_form.stage.id_for_label }}">Статус</label>{{ stage_form.stage }}</div>
+        <div class="field"><label for="{{ stage_form.interview_at.id_for_label }}">{{ stage_form.interview_at.label }}</label>{{ stage_form.interview_at }}
+          <div class="muted small">Для статусу «Запрошено на співбесіду».</div></div>
+        <div class="field">{{ stage_form.comment }}</div>
         <button class="btn primary">Зберегти</button>
       </form>
     </div>
+
     <div class="card">
-      <h2>Співбесіда</h2>
-      <form method="post" action="{% url 'recruiting:application_interview' application.pk %}" class="row">
-        {% csrf_token %}
-        {{ interview_form.interview_at }}
-        <button class="btn">Зберегти</button>
-      </form>
-    </div>
-    <div class="card">
-      <h2>Нотатка</h2>
+      <h2>Запис в історію</h2>
       <form method="post" action="{% url 'recruiting:application_note' application.pk %}">
         {% csrf_token %}
         {{ note_form.text }}
         <button class="btn">Додати</button>
       </form>
     </div>
+
     <div class="card">
       <h2>Історія</h2>
       <ul class="timeline">
@@ -72,6 +91,17 @@
       {% endfor %}
       </ul>
     </div>
+
+    <details class="card">
+      <summary>Перенести в інший розділ</summary>
+      <form method="post" action="{% url 'recruiting:application_channel' application.pk %}" class="row" style="margin-top:10px">
+        {% csrf_token %}
+        <select name="channel">
+          {% for value, label in channel_choices %}<option value="{{ value }}" {% if value == application.channel %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+        <button class="btn">Перенести</button>
+      </form>
+    </details>
   </section>
 </div>
 {% endblock %}

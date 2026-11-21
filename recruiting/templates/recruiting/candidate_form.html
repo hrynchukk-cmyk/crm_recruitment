@@ -4,8 +4,9 @@
 <div class="card narrow-lg">
   {% if vacancy %}
     <a class="muted small" href="{{ vacancy.get_absolute_url }}">← {{ vacancy.title }}</a>
-    <h1>Додати кандидата</h1>
-    <p class="muted">Якщо кандидат з таким телефоном або email уже є в базі, його буде додано на вакансію без створення дубліката.</p>
+    <h1>Додати кандидата на вакансію</h1>
+    <p class="muted">Вставте посилання з Work.ua (відгук, рекомендацію або резюме з бази), ім'я, вік і телефон — як рядок у таблиці.
+      Якщо такий кандидат уже є в CRM (за посиланням, телефоном або email), дубліката не буде.</p>
   {% else %}
     <h1>{{ candidate.full_name }}</h1>
   {% endif %}
@@ -13,7 +14,10 @@
     {% csrf_token %}
     {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
     {% include "recruiting/_form_fields.html" %}
-    <div class="actions"><button class="btn primary">Зберегти</button></div>
+    <div class="actions">
+      <button class="btn primary">Зберегти</button>
+      {% if vacancy %}<button class="btn" name="add_another" value="1">Зберегти і додати ще</button>{% endif %}
+    </div>
   </form>
 </div>
 {% endblock %}

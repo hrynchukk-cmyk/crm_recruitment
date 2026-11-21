@@ -1,3 +1,5 @@
+import re
+
 from django.conf import settings
 from django.db import models
 from django.urls import reverse
@@ -88,11 +90,21 @@ class Candidate(models.Model):
         REFERRAL = "referral", "Рекомендація"
         OTHER = "other", "Інше"
 
-    full_name = models.CharField("ПІБ", max_length=255)
+    class District(models.TextChoices):
+        HALYTSKYI = "halytskyi", "Галицький"
+        ZALIZNYCHNYI = "zaliznychnyi", "Залізничний"
+        LYCHAKIVSKYI = "lychakivskyi", "Личаківський"
+        SYKHIVSKYI = "sykhivskyi", "Сихівський"
+        FRANKIVSKYI = "frankivskyi", "Франківський"
+        SHEVCHENKIVSKYI = "shevchenkivskyi", "Шевченківський"
+        REGION = "region", "Область / передмістя"
+
+    full_name = models.CharField("ім'я", max_length=255)
     phone = models.CharField("телефон", max_length=50, blank=True, db_index=True)
+    age = models.PositiveSmallIntegerField("вік", null=True, blank=True)
+    district = models.CharField("район", max_length=20, choices=District, blank=True)
     email = models.EmailField("email", blank=True)
     city = models.CharField("місто", max_length=100, blank=True)
-    birth_year = models.PositiveSmallIntegerField("рік народження", null=True, blank=True)
     source = models.CharField("джерело", max_length=20, choices=Source, default=Source.MANUAL)
     workua_resume_id = models.CharField("ID резюме на Work.ua", max_length=32, blank=True)
     resume_url = models.URLField("посилання на резюме", blank=True)
@@ -118,7 +130,57 @@ class Candidate(models.Model):
 
     def save(self, *args, **kwargs):
         self.phone = normalize_phone(self.phone)
+        if not self.workua_resume_id:
+            self.workua_resume_id = parse_workua_resume_id(self.resume_url)
         super().save(*args, **kwargs)
+
+    @property
+    def phone_display(self) -> str:
+        """+380931818875 → 093 181-88-75 (як звикли записувати в таблиці)."""
+        p = self.phone
+        if len(p) == 13 and p.startswith("+380"):
+            local = "0" + p[4:]
+            return f"{local[:3]} {local[3:6]}-{local[6:8]}-{local[8:]}"
+        return p
+
+    @property
+    def viber_url(self) -> str:
+        digits = "".join(ch for ch in self.phone if ch.isdigit())
+        return f"viber://chat?number=%2B{digits}" if digits else ""
+
+
+_WORKUA_RESUME_RE = re.compile(r"work\.ua/(?:[a-z]{2}/)?resumes/(\d+)")
+_WORKUA_APPLICANT_RE = re.compile(r"/my/applicants/(\d+)")
+_WORKUA_RECOMMENDED_RE = re.compile(r"/my/recommended/(\d+)")
+
+
+def parse_workua_resume_id(value: str) -> str:
+    """Дістає ID резюме з посилання виду https://www.work.ua/resumes/1234567/."""
+    if not value:
+        return ""
+    match = _WORKUA_RESUME_RE.search(value)
+    return match.group(1) if match else ""
+
+
+def parse_workua_link(value: str) -> tuple[str, str]:
+    """Розпізнає посилання з Work.ua і повертає (розділ, ID).
+
+    * …/my/applicants/<ID>  — відгук на вакансію        → ("response", ID)
+    * …/my/recommended/<ID> — рекомендований кандидат   → ("recommended", ID)
+    * …/resumes/<ID>        — резюме з бази (підібраний) → ("sourced", ID)
+    Інакше — ("", "").
+    """
+    if not value:
+        return "", ""
+    for channel, regex in (
+        ("response", _WORKUA_APPLICANT_RE),
+        ("recommended", _WORKUA_RECOMMENDED_RE),
+        ("sourced", _WORKUA_RESUME_RE),
+    ):
+        match = regex.search(value)
+        if match:
+            return channel, match.group(1)
+    return "", ""
 
 
 def normalize_phone(phone: str) -> str:
@@ -136,27 +198,38 @@ def normalize_phone(phone: str) -> str:
 
 
 class Application(models.Model):
-    """Кандидат на конкретній вакансії — саме тут живе статус."""
+    """Кандидат на конкретній вакансії — саме тут живуть розділ і статус."""
+
+    class Channel(models.TextChoices):
+        """Розділ вакансії: як кандидат потрапив на цю посаду."""
+
+        RESPONSE = "response", "Відгуки"
+        RECOMMENDED = "recommended", "Рекомендовані Work.ua"
+        SOURCED = "sourced", "Підібрані рекрутером"
 
     class Stage(models.TextChoices):
-        NEW = "new", "Новий"
+        NEW = "new", "Зателефонувати"
         NO_ANSWER = "no_answer", "Не додзвонилися"
-        CONTACTED = "contacted", "Зв'язалися"
-        INTERVIEW = "interview", "Співбесіда призначена"
-        SENT_TO_CLIENT = "sent_to_client", "Передано підприємству"
-        OFFER = "offer", "Пропозиція / погодили"
+        VIBER = "viber", "Написали у Viber"
+        CALLBACK = "callback", "Передзвонити"
+        THINKING = "thinking", "Думає"
+        INTERVIEW = "interview", "Запрошено на співбесіду"
+        NO_SHOW = "no_show", "Не прийшов на співбесіду"
+        PASSED = "passed", "Пройшов співбесіду"
         HIRED = "hired", "Вийшов на роботу"
         RESERVE = "reserve", "Резерв"
-        REJECTED_BY_US = "rejected_by_us", "Відмова: не підходить"
-        REJECTED_BY_CANDIDATE = "rejected_by_candidate", "Відмова: кандидат відмовився"
+        REJECTED_BY_US = "rejected_by_us", "Не підходить"
+        REJECTED_BY_CANDIDATE = "rejected_by_candidate", "Не актуально"
 
     ACTIVE_STAGES = [
         Stage.NEW,
         Stage.NO_ANSWER,
-        Stage.CONTACTED,
+        Stage.VIBER,
+        Stage.CALLBACK,
+        Stage.THINKING,
         Stage.INTERVIEW,
-        Stage.SENT_TO_CLIENT,
-        Stage.OFFER,
+        Stage.NO_SHOW,
+        Stage.PASSED,
     ]
     CLOSED_STAGES = [
         Stage.HIRED,
@@ -171,14 +244,22 @@ class Application(models.Model):
     candidate = models.ForeignKey(
         Candidate, verbose_name="кандидат", on_delete=models.CASCADE, related_name="applications"
     )
+    channel = models.CharField(
+        "розділ", max_length=20, choices=Channel, default=Channel.SOURCED, db_index=True
+    )
     stage = models.CharField("статус", max_length=30, choices=Stage, default=Stage.NEW, db_index=True)
     source = models.CharField(
         "джерело", max_length=20, choices=Candidate.Source, default=Candidate.Source.MANUAL
     )
-    workua_response_id = models.CharField("ID відгуку на Work.ua", max_length=32, blank=True)
+    workua_response_id = models.CharField(
+        "ID відгуку/рекомендації на Work.ua", max_length=64, blank=True
+    )
+    note = models.TextField(
+        "примітка", blank=True, help_text="Коротко про кандидата: досвід, що уточнити (як у колонці «Примітка»)."
+    )
     cover_letter = models.TextField("супровідний лист", blank=True)
     interview_at = models.DateTimeField("дата співбесіди", null=True, blank=True)
-    applied_at = models.DateTimeField("дата відгуку", null=True, blank=True)
+    applied_at = models.DateTimeField("дата відгуку / додавання", null=True, blank=True)
     stage_changed_at = models.DateTimeField("статус змінено", auto_now_add=True)
     created_at = models.DateTimeField("додано", auto_now_add=True)
     updated_at = models.DateTimeField("оновлено", auto_now=True)
@@ -190,9 +271,9 @@ class Application(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["vacancy", "candidate"], name="unique_application"),
             models.UniqueConstraint(
-                fields=["workua_response_id"],
+                fields=["vacancy", "workua_response_id"],
                 condition=~models.Q(workua_response_id=""),
-                name="unique_application_workua_response_id",
+                name="unique_application_vacancy_workua_ref",
             ),
         ]
 

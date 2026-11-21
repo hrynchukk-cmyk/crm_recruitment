@@ -16,24 +16,32 @@
 
 <table class="table">
   <thead>
-    <tr><th>Посада</th><th>Підприємство</th><th>Рекрутер</th><th class="num">Нові</th><th class="num">В роботі</th><th class="num">Вийшли / треба</th><th class="num">Усього</th></tr>
+    <tr>
+      <th>Посада</th>
+      <th class="num">Відгуки</th>
+      <th class="num">Рекомендовані</th>
+      <th class="num">Підібрані</th>
+      <th class="num">Співбесіди</th>
+      <th class="num">Вийшли / треба</th>
+    </tr>
   </thead>
   <tbody>
   {% for v in vacancies %}
     <tr>
       <td><a href="{{ v.get_absolute_url }}"><strong>{{ v.title }}</strong></a>
         {% if v.status != 'open' %}<span class="badge">{{ v.get_status_display }}</span>{% endif %}
-        <div class="muted small">{{ v.city }}{% if v.salary %} · {{ v.salary }}{% endif %}</div></td>
-      <td>{{ v.company }}</td>
-      <td>{% if v.recruiter %}{{ v.recruiter.get_full_name|default:v.recruiter.username }}{% else %}—{% endif %}</td>
-      <td class="num">{% if v.new %}<span class="badge stage-new">{{ v.new }}</span>{% else %}0{% endif %}</td>
-      <td class="num">{{ v.in_progress }}</td>
+        <div class="muted small">{{ v.company }} · {{ v.city }}{% if v.salary %} · {{ v.salary }}{% endif %}
+          · {% if v.recruiter %}{{ v.recruiter.get_full_name|default:v.recruiter.username }}{% else %}без рекрутера{% endif %}</div></td>
+      <td class="num"><a href="{{ v.get_absolute_url }}?channel=response">{{ v.responses }}</a>{% if v.responses_new %} <span class="badge stage-new" title="нові">+{{ v.responses_new }}</span>{% endif %}</td>
+      <td class="num"><a href="{{ v.get_absolute_url }}?channel=recommended">{{ v.recommended }}</a>{% if v.recommended_new %} <span class="badge stage-new" title="нові">+{{ v.recommended_new }}</span>{% endif %}</td>
+      <td class="num"><a href="{{ v.get_absolute_url }}?channel=sourced">{{ v.sourced }}</a>{% if v.sourced_new %} <span class="badge stage-new" title="нові">+{{ v.sourced_new }}</span>{% endif %}</td>
+      <td class="num">{{ v.interviews }}</td>
       <td class="num">{{ v.hired }} / {{ v.headcount }}</td>
-      <td class="num">{{ v.total }}</td>
     </tr>
   {% empty %}
-    <tr><td colspan="7" class="muted">Вакансій немає.</td></tr>
+    <tr><td colspan="6" class="muted">Вакансій немає.</td></tr>
   {% endfor %}
   </tbody>
 </table>
+<p class="muted small">«+N» — нові кандидати, з якими ще не працювали.</p>
 {% endblock %}
