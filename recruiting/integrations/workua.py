@@ -146,19 +146,56 @@ def parse_age_text(value) -> int | None:
 
 
 def _parse_dt(value) -> datetime | None:
+    """Дата-час з Work.ua; некоректні значення (напр. «0000-00-00 00:00:00») → None."""
     if not value:
         return None
-    dt = parse_datetime(str(value).replace(" ", "T", 1))
-    if dt and timezone.is_naive(dt):
-        dt = timezone.make_aware(dt)
-    return dt
+    try:
+        dt = parse_datetime(str(value).strip().replace(" ", "T", 1))
+        if dt and timezone.is_naive(dt):
+            dt = timezone.make_aware(dt)
+        return dt
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _safe_date(value) -> date | None:
+    try:
+        return parse_date(str(value).strip()[:10]) if value else None
+    except (ValueError, TypeError):
+        return None
 
 
 def _parse_d(value) -> date | None:
     if not value:
         return None
     dt = _parse_dt(value)
-    return timezone.localtime(dt).date() if dt else parse_date(str(value)[:10])
+    return timezone.localtime(dt).date() if dt else _safe_date(value)
+
+
+def _s(value) -> str:
+    """Рядок без пробілів по краях; None/числа/інше — безпечно."""
+    if value is None or isinstance(value, (dict, list)):
+        return ""
+    return str(value).strip()
+
+
+def _items(data) -> list:
+    """Список записів з відповіді: {"items": [...]} або просто [...]."""
+    if isinstance(data, list):
+        return [i for i in data if isinstance(i, dict)]
+    if isinstance(data, dict):
+        items = data.get("items")
+        if items is None:
+            items = data.get("result")
+        return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+    return []
+
+
+def _last_page(data, page: int) -> int:
+    try:
+        return int(((data.get("pagination") or {}) if isinstance(data, dict) else {}).get("last_page") or page)
+    except (TypeError, ValueError):
+        return page
 
 
 def _salary_text(salary) -> str:
@@ -301,8 +338,8 @@ class WorkUaApiClient:
                 data = data.get("town") or data.get("items") or data.get("result") or []
             towns = {}
             for item in data if isinstance(data, list) else []:
-                if isinstance(item, dict) and item.get("id") is not None:
-                    towns[int(item["id"])] = item.get("name_ua") or item.get("name") or ""
+                if isinstance(item, dict) and str(item.get("id") or "").isdigit():
+                    towns[int(item["id"])] = _s(item.get("name_ua")) or _s(item.get("name"))
             self._towns = towns
         return self._towns
 
@@ -315,8 +352,14 @@ class WorkUaApiClient:
             data = self._json("/jobs/my", {"full": 1, "all": 1, "page": page, "limit": self.JOBS_PAGE_LIMIT})
             if not data:
                 break
-            jobs.extend(self._parse_job(item) for item in data.get("items") or [])
-            last_page = int((data.get("pagination") or {}).get("last_page") or page)
+            for item in _items(data):
+                if item.get("id") is None:
+                    continue
+                try:
+                    jobs.append(self._parse_job(item))
+                except Exception:
+                    logger.exception("Work.ua: не вдалося розібрати вакансію %r", item.get("id"))
+            last_page = _last_page(data, page)
             if page >= last_page:
                 break
             page += 1
@@ -327,15 +370,15 @@ class WorkUaApiClient:
         region = item.get("region")
         return WorkUaJob(
             id=str(item["id"]),
-            name=(item.get("name") or "").strip() or f"Вакансія Work.ua {item['id']}",
+            name=_s(item.get("name")) or f"Вакансія Work.ua {item['id']}",
             active=_flag(item.get("active")),
             published_on=_parse_d(item.get("date")),
             expires_on=_parse_d(item.get("date_expire")),
             region_id=int(region) if str(region or "").isdigit() else None,
-            street_address=(item.get("streetAddress") or "").strip(),
-            description=html_to_text(item.get("description")),
+            street_address=_s(item.get("streetAddress")),
+            description=html_to_text(_s(item.get("description"))),
             salary_text=_salary_text(item.get("salary")),
-            contact_email=((item.get("contact") or {}).get("email") or "").strip(),
+            contact_email=_s(item.get("contact", {}).get("email")) if isinstance(item.get("contact"), dict) else "",
         )
 
     # ---- відгуки
@@ -359,7 +402,7 @@ class WorkUaApiClient:
                 not_accessible=f"Вакансія {job_id} недоступна в цьому акаунті Work.ua (належить іншій компанії, "
                 "видалена або номер вказано неправильно).",
             )
-            batch = [r for r in (data or {}).get("items") or [] if r.get("id") is not None]
+            batch = [r for r in _items(data) if str(r.get("id") or "").isdigit()]
             batch = [r for r in batch if not after_id or int(r["id"]) > after_id]
             if not batch:
                 break
@@ -378,18 +421,18 @@ class WorkUaApiClient:
         from_type = r.get("from_type") or "send"
         if from_type not in Application.WorkUaFrom.values:
             from_type = "send"
-        fio = " ".join((r.get("fio") or "").split())
+        fio = " ".join(_s(r.get("fio")).split())
         return WorkUaCandidate(
             external_id=str(r["id"]),
             full_name=fio or "Кандидат з Work.ua (ім'я приховане)",
             channel=Application.Channel.RESPONSE,
             from_type=from_type,
-            phone=(r.get("phone") or "").strip(),
-            email=(r.get("email") or "").strip(),
-            age=age_from_birth_date(parse_date(str(r.get("birth_date") or "")[:10]) if r.get("birth_date") else None),
+            phone=_s(r.get("phone"))[:50],
+            email=_s(r.get("email"))[:254],
+            age=age_from_birth_date(_safe_date(r.get("birth_date"))),
             workua_candidate_id=str(r.get("candidate_id") or ""),
-            resume_text=html_to_text(r.get("text")),
-            cover_letter=html_to_text(r.get("cover")),
+            resume_text=html_to_text(_s(r.get("text"))),
+            cover_letter=html_to_text(_s(r.get("cover"))),
             has_file=_flag(r.get("with_file")),
             applied_at=_parse_dt(r.get("date")),
         )
@@ -412,8 +455,8 @@ class WorkUaApiClient:
             data = self._json("/candidates", {"job_id": job_id, "page": page})
             if not data:
                 break
-            items.extend(i for i in data.get("items") or [] if i.get("candidate_id"))
-            last_page = int((data.get("pagination") or {}).get("last_page") or page)
+            items.extend(i for i in _items(data) if i.get("candidate_id"))
+            last_page = _last_page(data, page)
             if page >= last_page:
                 break
             page += 1
@@ -423,11 +466,12 @@ class WorkUaApiClient:
         """Деталі збереженого кандидата (GET /candidates/<id>); якщо недоступні — з даних списку."""
         candidate_id = str(item["candidate_id"])
         data = self._json(f"/candidates/{candidate_id}") or {}
-        info = data.get("candidate") or {}
-        brief = item.get("info") or {}
-        first = info.get("first_name") or brief.get("first_name") or ""
-        last = info.get("last_name") or brief.get("last_name") or ""
-        middle = info.get("middle_name") or brief.get("middle_name") or ""
+        data = data if isinstance(data, dict) else {}
+        info = data.get("candidate") if isinstance(data.get("candidate"), dict) else {}
+        brief = item.get("info") if isinstance(item.get("info"), dict) else {}
+        first = _s(info.get("first_name")) or _s(brief.get("first_name"))
+        last = _s(info.get("last_name")) or _s(brief.get("last_name"))
+        middle = _s(info.get("middle_name")) or _s(brief.get("middle_name"))
         name = " ".join(p for p in (first, middle, last) if p).strip()
         resumes = data.get("resumes") or []
         resume_id = str(resumes[0].get("id") or "") if resumes and isinstance(resumes[0], dict) else ""
@@ -437,8 +481,8 @@ class WorkUaApiClient:
             full_name=name or "Кандидат з Work.ua (ім'я приховане)",
             channel=Application.Channel.SOURCED,
             from_type=Application.WorkUaFrom.SAVED,
-            phone=(info.get("phone") or "").strip(),
-            email=(info.get("email") or "").strip(),
+            phone=_s(info.get("phone"))[:50],
+            email=_s(info.get("email"))[:254],
             age=parse_age_text(info.get("age")),
             workua_candidate_id=candidate_id,
             resume_id=resume_id,
@@ -589,37 +633,46 @@ def import_jobs(client: WorkUaClient, result: SyncResult) -> None:
     jobs = client.my_jobs()
     users_by_email = {u.email.lower(): u for u in get_user_model().objects.exclude(email="")}
     for job in jobs:
-        vacancy = Vacancy.objects.filter(workua_job_id=job.id).first()
-        if vacancy:
-            vacancy.workua_active = job.active
-            vacancy.workua_expires_on = job.expires_on
-            vacancy.workua_street_address = job.street_address
-            fields = ["workua_active", "workua_expires_on", "workua_street_address"]
-            if job.description and not vacancy.description:
-                vacancy.description = job.description
-                fields.append("description")
-            if job.salary_text and not vacancy.salary:
-                vacancy.salary = job.salary_text[:100]
-                fields.append("salary")
-            vacancy.save(update_fields=[*fields, "updated_at"])
-            result.jobs_updated += 1
-        elif job.active:
-            city = client.towns().get(job.region_id, "") if job.region_id else ""
-            Vacancy.objects.create(
-                company=None,  # підприємство призначає рекрутер
-                title=job.name[:255],
-                city=(city or "Львів")[:100],
-                salary=job.salary_text[:100],
-                description=job.description,
-                status=Vacancy.Status.OPEN,
-                opened_on=job.published_on or timezone.localdate(),
-                recruiter=users_by_email.get(job.contact_email.lower()) if job.contact_email else None,
-                workua_job_id=job.id,
-                workua_active=True,
-                workua_expires_on=job.expires_on,
-                workua_street_address=job.street_address[:255],
-            )
-            result.jobs_created += 1
+        try:
+            with transaction.atomic():
+                _import_job(client, job, users_by_email, result)
+        except Exception as exc:
+            logger.exception("Work.ua: не вдалося імпортувати вакансію %s", job.id)
+            result.errors.append(f"Вакансія Work.ua {job.id} «{job.name}»: {exc.__class__.__name__}: {exc}")
+
+
+def _import_job(client: WorkUaClient, job: WorkUaJob, users_by_email: dict, result: SyncResult) -> None:
+    vacancy = Vacancy.objects.filter(workua_job_id=job.id).first()
+    if vacancy:
+        vacancy.workua_active = job.active
+        vacancy.workua_expires_on = job.expires_on
+        vacancy.workua_street_address = job.street_address
+        fields = ["workua_active", "workua_expires_on", "workua_street_address"]
+        if job.description and not vacancy.description:
+            vacancy.description = job.description
+            fields.append("description")
+        if job.salary_text and not vacancy.salary:
+            vacancy.salary = job.salary_text[:100]
+            fields.append("salary")
+        vacancy.save(update_fields=[*fields, "updated_at"])
+        result.jobs_updated += 1
+    elif job.active:
+        city = client.towns().get(job.region_id, "") if job.region_id else ""
+        Vacancy.objects.create(
+            company=None,  # підприємство призначає рекрутер
+            title=job.name[:255],
+            city=(city or "Львів")[:100],
+            salary=job.salary_text[:100],
+            description=job.description,
+            status=Vacancy.Status.OPEN,
+            opened_on=job.published_on or timezone.localdate(),
+            recruiter=users_by_email.get(job.contact_email.lower()) if job.contact_email else None,
+            workua_job_id=job.id,
+            workua_active=True,
+            workua_expires_on=job.expires_on,
+            workua_street_address=job.street_address[:255],
+        )
+        result.jobs_created += 1
 
 
 def sync_vacancy(vacancy: Vacancy, client: WorkUaClient | None = None, user=None,
@@ -652,7 +705,8 @@ def sync_vacancy(vacancy: Vacancy, client: WorkUaClient | None = None, user=None
             detail = client.saved_candidate(item)
         except FATAL_ERRORS:
             raise
-        except WorkUaError as exc:
+        except Exception as exc:
+            logger.exception("Work.ua: кандидат %s", candidate_id)
             result.errors.append(f"{vacancy.title}, кандидат {candidate_id}: {exc}")
             continue
         _import(vacancy, [detail], result, user)
@@ -690,6 +744,14 @@ def guarded(func):
         except WorkUaError as exc:
             _record(state, error=exc)
             raise
+        except Exception as exc:
+            logger.exception("Work.ua: неочікувана помилка синхронізації")
+            error = WorkUaError(
+                f"Неочікувана помилка під час синхронізації з Work.ua ({exc.__class__.__name__}: {exc}). "
+                "Повний опис — у журналі: docker compose logs web --tail 150"
+            )
+            _record(state, error=error)
+            raise error from exc
         _record(state, result=result)
         return result
 
@@ -720,6 +782,9 @@ def sync_all(client: WorkUaClient | None = None, user=None) -> SyncResult:
             raise
         except WorkUaError as exc:
             result.errors.append(f"{vacancy.title}: {exc}")
+        except Exception as exc:
+            logger.exception("Work.ua: помилка синхронізації вакансії %s", vacancy.pk)
+            result.errors.append(f"{vacancy.title}: {exc.__class__.__name__}: {exc}")
     return result
 
 
