@@ -527,3 +527,44 @@ class CompanyPagesTests(BaseTestCase):
     def test_list_and_edit_pages(self):
         self.assertContains(self.client.get(reverse("recruiting:company_list")), "вказати на карті")
         self.assertContains(self.client.get(reverse("recruiting:company_edit", args=[self.company.pk])), 'id="company-map"')
+
+
+class VacancySaveTests(BaseTestCase):
+    def setUp(self):
+        self.client.force_login(self.user)
+        self.data = {"company": self.company.pk, "title": "Комірник", "city": "Львів", "headcount": 1, "status": "open"}
+
+    def test_save_redirects_to_vacancy_list_with_message_and_highlight(self):
+        response = self.client.post(reverse("recruiting:vacancy_create"), self.data, follow=True)
+        vacancy = Vacancy.objects.get(title="Комірник")
+        self.assertEqual(response.redirect_chain[-1][0], f"/?status=open&saved={vacancy.pk}")
+        self.assertContains(response, "Вакансію «Комірник» збережено.")
+        self.assertContains(response, 'class="just-saved"')
+
+    def test_paused_vacancy_lands_on_paused_tab(self):
+        response = self.client.post(reverse("recruiting:vacancy_create"), {**self.data, "status": "paused"})
+        self.assertIn("status=paused", response["Location"])
+
+    def test_edit_also_returns_to_list(self):
+        response = self.client.post(reverse("recruiting:vacancy_edit", args=[self.vacancy.pk]),
+                                    {**self.data, "title": "Оператор лінії (змінено)"})
+        self.assertTrue(response["Location"].startswith("/?status=open"))
+
+    def test_duplicate_workua_link_explained(self):
+        response = self.client.post(reverse("recruiting:vacancy_create"),
+                                    {**self.data, "workua_job_id": "https://www.work.ua/jobs/1234567/"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ця вакансія Work.ua вже є в CRM: «Оператор лінії»")
+
+    def test_friendly_500_page(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string("500.html")
+        self.assertIn("Щось пішло не так", html)
+        self.assertIn("docker compose logs web", html)
+
+    def test_newest_vacancy_first_in_list(self):
+        self.client.post(reverse("recruiting:vacancy_create"), {**self.data, "title": "Найновіша"})
+        response = self.client.get(reverse("recruiting:vacancy_list"))
+        titles = [v.title for v in response.context["vacancies"]]
+        self.assertEqual(titles[0], "Найновіша")

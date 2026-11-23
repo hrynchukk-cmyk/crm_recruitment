@@ -230,3 +230,10 @@ details.card summary { cursor: pointer; font-weight: 600; }
 .tip-table th[scope=row], .tip-table thead th:first-child { text-align: left; white-space: normal; padding-left: 0; font-weight: 600; }
 .tip-table thead th:first-child { font-weight: 400; }
 .tip-table th[scope=row] { min-width: 120px; }
+
+/* Помилки форми, що не стосуються одного поля, і «щойно збережено» */
+.errorlist { list-style: none; margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: #fdecec; color: var(--danger); font-size: .92rem; }
+.field .errorlist { margin: 4px 0 0; padding: 0; background: none; }
+@keyframes saved-flash { from { background: #e3f7ea; } to { background: transparent; } }
+.table tr.just-saved td { animation: saved-flash 2.5s ease-out 1; }
+.table tr.just-saved td:first-child { box-shadow: inset 3px 0 0 var(--ok); }

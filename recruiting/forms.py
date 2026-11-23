@@ -72,6 +72,13 @@ class VacancyForm(forms.ModelForm):
             value = parts[-1] if parts else value
         if value and not value.isdigit():
             raise forms.ValidationError("Вкажіть номер вакансії або посилання на неї на Work.ua.")
+        if value:
+            duplicate = Vacancy.objects.filter(workua_job_id=value).exclude(pk=self.instance.pk).first()
+            if duplicate:
+                raise forms.ValidationError(
+                    f"Ця вакансія Work.ua вже є в CRM: «{duplicate.title}» ({duplicate.company}). "
+                    "Відкрийте її у списку вакансій або залиште це поле порожнім."
+                )
         return value
 
 
