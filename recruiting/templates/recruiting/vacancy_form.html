@@ -11,6 +11,6 @@
       <a class="btn" href="{% if vacancy %}{{ vacancy.get_absolute_url }}{% else %}{% url 'recruiting:vacancy_list' %}{% endif %}">Скасувати</a>
     </div>
   </form>
-  {% if user.is_staff %}<p class="muted small">Нове підприємство можна додати в <a href="{% url 'admin:recruiting_company_add' %}">адмінці</a>.</p>{% endif %}
+  {% if perms.recruiting.add_company %}<p class="muted small">Підприємства з адресою й точкою на карті — у розділі <a href="{% url 'recruiting:company_list' %}">«Підприємства»</a>.</p>{% endif %}
 </div>
 {% endblock %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Немає доступу — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="card narrow-lg">
+  <h1>Немає доступу</h1>
+  <p>У вашої ролі немає прав на цю дію або сторінку{% if exception %}: {{ exception }}{% else %}.{% endif %}</p>
+  <p>Якщо доступ потрібен — зверніться до адміністратора CRM.</p>
+  <div class="actions"><a class="btn" href="javascript:history.back()">← Назад</a><a class="btn primary" href="{% url 'recruiting:dashboard' %}">На дашборд</a></div>
+</div>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Команда — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Команда</h1><p class="page-sub">Хто має доступ до CRM і з якою роллю.</p></div>
+  <a class="btn primary" href="{% url 'recruiting:team_user_create' %}">+ Додати користувача</a>
+</div>
+
+<div class="roles-help">
+  <div><span class="badge role-admin">Адміністратор</span> бачить і робить усе, керує командою, має доступ до «Адмінки».</div>
+  <div><span class="badge role-recruiter">Рекрутер</span> дашборд і вакансії — повністю (вакансії, кандидати, статуси, імпорт, Work.ua); підприємства — лише перегляд; без «Адмінки».</div>
+</div>
+
+<table class="table">
+  <thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Роль</th><th>Доступ</th><th>Останній вхід</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td><a href="{% url 'recruiting:team_user_edit' row.user.pk %}"><strong>{{ row.user.get_full_name|default:row.user.username }}</strong></a>{% if row.user == user %} <span class="muted small">(ви)</span>{% endif %}</td>
+      <td>{{ row.user.username }}</td>
+      <td>{{ row.user.email|default:"—" }}</td>
+      <td><span class="badge {% if row.user.is_superuser %}role-admin{% else %}role-recruiter{% endif %}">{{ row.role }}</span></td>
+      <td>{% if row.user.is_active %}<span class="loc-ok">увімкнено</span>{% else %}<span class="muted">вимкнено</span>{% endif %}</td>
+      <td class="small">{{ row.user.last_login|date:"d.m.Y H:i"|default:"ще не входив" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

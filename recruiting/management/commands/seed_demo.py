@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from recruiting.models import Application, Candidate, Company, Vacancy
+from recruiting.roles import RECRUITER, set_role
 from recruiting.services import attach_candidate, change_stage
 
 NAMES = [
@@ -40,6 +41,12 @@ class Command(BaseCommand):
             admin.set_password("admin")
             admin.save()
             self.stdout.write("Створено користувача admin / admin")
+        recruiter, created = User.objects.get_or_create(username="recruiter", defaults={"first_name": "Оксана"})
+        if created:
+            recruiter.set_password("recruiter")
+            recruiter.save()
+            set_role(recruiter, RECRUITER)
+            self.stdout.write("Створено рекрутера recruiter / recruiter")
 
         rng = random.Random(42)
         today = timezone.localdate()

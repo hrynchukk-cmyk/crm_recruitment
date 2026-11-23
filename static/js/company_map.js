@@ -8,7 +8,25 @@
   var statusEl = document.getElementById("map-status");
   var clearBtn = document.getElementById("clear-point");
   var geocodeBtn = document.getElementById("geocode-btn");
-  if (!window.L || !latInput) return;
+  var mapEl = document.getElementById("company-map");
+  if (!window.L || !mapEl) return;
+
+  // Картка лише для перегляду (рекрутер): точка без можливості змінити.
+  if (mapEl.hasAttribute("data-readonly")) {
+    var lat = parseFloat(mapEl.getAttribute("data-lat")), lng = parseFloat(mapEl.getAttribute("data-lng"));
+    var view = L.map(mapEl, { scrollWheelZoom: false }).setView(isNaN(lat) ? LVIV : [lat, lng], isNaN(lat) ? 12 : 15);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      referrerPolicy: "strict-origin-when-cross-origin",
+    }).addTo(view);
+    if (!isNaN(lat)) {
+      L.marker([lat, lng], { icon: L.divIcon({ className: "pin", html: "<span></span>", iconSize: [24, 24], iconAnchor: [12, 24] }),
+        keyboard: false, interactive: false }).addTo(view);
+    }
+    return;
+  }
+  if (!latInput) return;
 
   var map = L.map("company-map", { scrollWheelZoom: false }).setView(LVIV, 12);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {

@@ -39,7 +39,7 @@
   {% if data.missing_location %}
     <p class="small missing-loc">Не позначені на карті:
       {% for c in data.missing_location %}<a href="{% url 'recruiting:company_edit' c.pk %}?next={{ request.get_full_path|urlencode }}">{{ c.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
-      — клацніть, щоб вказати розташування.</p>
+      — {% if perms.recruiting.change_company %}клацніть, щоб вказати розташування{% else %}розташування може вказати адміністратор{% endif %}.</p>
   {% endif %}
   {% if data.unassigned %}
     <p class="small missing-loc">Вакансії без підприємства (з Work.ua):

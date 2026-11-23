@@ -1,9 +1,12 @@
 from django import forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator, validate_email
 from django.utils import timezone
 
 from .models import Application, Candidate, Company, Vacancy, parse_workua_link
+from .roles import ADMIN, RECRUITER, ROLE_CHOICES, active_admins_count, role_of, set_role
 
 
 class VacancyForm(forms.ModelForm):
@@ -42,11 +45,16 @@ class VacancyForm(forms.ModelForm):
             "opened_on": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, can_add_company: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
+        self.can_add_company = can_add_company
         self.fields["company"].required = False
         self.fields["company"].help_text = "Щоб підприємство з'явилося на дашборді, позначте його на карті в розділі «Підприємства»."
         self.fields["opened_on"].required = False
+        if not can_add_company:
+            # Рекрутер вибирає лише з наявних підприємств; нові додає адміністратор.
+            del self.fields["new_company"]
+            self.fields["company"].help_text = "Немає потрібного підприємства? Попросіть адміністратора додати його."
 
     def clean_opened_on(self):
         # Не вказали — вважаємо, що вакансію опублікували сьогодні.
@@ -54,14 +62,14 @@ class VacancyForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        name = (cleaned.get("new_company") or "").strip()
+        name = (cleaned.get("new_company") or "").strip() if self.can_add_company else ""
         if name:
             # Створюємо одразу: модельна валідація вакансії потребує збереженого підприємства.
             # Повторне введення тієї ж назви не створить дубліката.
             company = Company.objects.filter(name__iexact=name).first()
             cleaned["company"] = company or Company.objects.create(name=name)
         elif not cleaned.get("company"):
-            self.add_error("company", "Виберіть підприємство або впишіть нове.")
+            self.add_error("company", "Виберіть підприємство або впишіть нове." if self.can_add_company else "Виберіть підприємство.")
         return cleaned
 
     def clean_workua_job_id(self):
@@ -280,3 +288,71 @@ class NoteForm(forms.Form):
         label="Нотатка",
         widget=forms.Textarea(attrs={"rows": 2, "placeholder": "Напр.: передзвонити в понеділок після 14:00"}),
     )
+
+
+class TeamUserForm(forms.ModelForm):
+    """Користувач CRM і його роль (сторінка «Команда», лише для адміністратора)."""
+
+    role = forms.ChoiceField(
+        label="Роль",
+        choices=ROLE_CHOICES,
+        initial=RECRUITER,
+        widget=forms.RadioSelect,
+        help_text="Рекрутер: дашборд і вакансії повністю, підприємства — лише перегляд, без «Адмінки». "
+        "Адміністратор: усе.",
+    )
+    is_active = forms.BooleanField(label="Доступ до CRM увімкнено", required=False, initial=True)
+    password1 = forms.CharField(label="Пароль", required=False, strip=False,
+                                widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
+    password2 = forms.CharField(label="Пароль ще раз", required=False, strip=False,
+                                widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
+
+    class Meta:
+        model = get_user_model()
+        fields = ["first_name", "last_name", "username", "email"]
+        labels = {"first_name": "Ім'я", "last_name": "Прізвище", "username": "Логін для входу", "email": "Email"}
+        help_texts = {"username": "Латиницею, без пробілів, напр. olena або olena.koval"}
+
+    def __init__(self, *args, acting_user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.acting_user = acting_user
+        self.is_new = self.instance.pk is None
+        if self.is_new:
+            self.fields["password1"].required = True
+            self.fields["password2"].required = True
+        else:
+            self.fields["role"].initial = role_of(self.instance) or RECRUITER
+            self.fields["is_active"].initial = self.instance.is_active
+            self.fields["password1"].label = "Новий пароль"
+            self.fields["password1"].help_text = "Залиште порожнім, щоб не змінювати."
+            self.fields["password2"].label = "Новий пароль ще раз"
+        self.order_fields(["first_name", "last_name", "username", "email", "role", "is_active", "password1", "password2"])
+
+    def clean(self):
+        cleaned = super().clean()
+        p1, p2 = cleaned.get("password1"), cleaned.get("password2")
+        if p1 or p2:
+            if p1 != p2:
+                self.add_error("password2", "Паролі не збігаються.")
+            else:
+                try:
+                    validate_password(p1, self.instance)
+                except ValidationError as exc:
+                    self.add_error("password1", exc)
+        role, active = cleaned.get("role"), cleaned.get("is_active")
+        if not self.is_new:
+            if self.instance == self.acting_user and (role != ADMIN or not active):
+                raise forms.ValidationError("Не можна забрати права адміністратора чи вимкнути доступ самому собі.")
+            was_active_admin = self.instance.is_superuser and self.instance.is_active
+            if was_active_admin and (role != ADMIN or not active) and active_admins_count() <= 1:
+                raise forms.ValidationError("Це останній адміністратор — спершу призначте іншого.")
+        return cleaned
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.is_active = self.cleaned_data.get("is_active", True)
+        if self.cleaned_data.get("password1"):
+            user.set_password(self.cleaned_data["password1"])
+        user.save()
+        set_role(user, self.cleaned_data["role"])
+        return user
