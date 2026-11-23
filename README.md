@@ -68,11 +68,14 @@ Python 3.13, Django 5.2, PostgreSQL (у продакшні) або SQLite (ло�
 
 Потрібен лише [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows / macOS) — встановіть і запустіть його.
 
-1. Завантажте код: на GitHub перейдіть у гілку `crm-mvp` → **Code → Download ZIP** і розпакуйте архів. Або через термінал:
+1. Завантажте код один раз через `git` (тоді оновлення — одним кліком, див. нижче). У Терміналі:
    ```bash
-   git clone -b crm-mvp https://github.com/hrynchukk-cmyk/crm_recruitment.git
+   cd ~
+   git clone https://github.com/hrynchukk-cmyk/crm_recruitment.git
+   cd crm_recruitment
    ```
-2. У папці проєкту скопіюйте файл `.env.example` у `.env` і відкрийте його в текстовому редакторі. Поміняйте `DJANGO_SECRET_KEY` (будь-який довгий випадковий рядок), `DJANGO_SUPERUSER_PASSWORD` (ваш пароль для входу) і `POSTGRES_PASSWORD`.
+   Код з'явиться в папці `crm_recruitment` у вашій домашній теці. Якщо macOS запропонує встановити «інструменти розробника командного рядка» — погодьтеся, це і є `git`.
+2. У папці проєкту скопіюйте файл `.env.example` у `.env` і відкрийте його в текстовому редакторі (`cp .env.example .env && open -e .env`). Поміняйте `DJANGO_SECRET_KEY` (будь-який довгий випадковий рядок), `DJANGO_SUPERUSER_PASSWORD` (ваш пароль для входу) і `POSTGRES_PASSWORD`.
 3. У терміналі в папці проєкту:
    ```bash
    docker compose up -d --build
@@ -84,7 +87,14 @@ Python 3.13, Django 5.2, PostgreSQL (у продакшні) або SQLite (ло�
 
 - **Зупинити:** `docker compose down`, виконане в папці CRM (зупиняє лише CRM). Дані зберігаються й будуть на місці після наступного `docker compose up -d`.
 - **Не запускайте** `docker compose down -v`: прапорець `-v` видаляє базу CRM разом з даними.
-- **Оновити до нової версії коду:** завантажте свіжий код і знову виконайте `docker compose up -d --build`.
+
+### Оновлення до нової версії
+
+Двічі клацніть файл **`update.command`** у папці `crm_recruitment` (Finder), або в Терміналі в цій папці:
+```bash
+./update.command
+```
+Скрипт завантажить оновлення з GitHub (`git pull`) і перезапустить CRM (`docker compose up -d --build`). Дані й файл `.env` залишаються як були. Docker Desktop має бути запущений.
 
 ### Перші кроки в CRM
 
