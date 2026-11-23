@@ -6,6 +6,10 @@ app_name = "recruiting"
 
 urlpatterns = [
     path("", views.vacancy_list, name="vacancy_list"),
+    path("dashboard/", views.dashboard, name="dashboard"),
+    path("companies/", views.company_list, name="company_list"),
+    path("companies/new/", views.company_form, name="company_create"),
+    path("companies/<int:pk>/", views.company_form, name="company_edit"),
     path("vacancies/new/", views.vacancy_form, name="vacancy_create"),
     path("vacancies/<int:pk>/", views.vacancy_detail, name="vacancy_detail"),
     path("vacancies/<int:pk>/edit/", views.vacancy_form, name="vacancy_edit"),

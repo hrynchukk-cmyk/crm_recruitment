@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Підприємства — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Підприємства</h1>
+  <a class="btn primary" href="{% url 'recruiting:company_create' %}">+ Нове підприємство</a>
+</div>
+
+<table class="table">
+  <thead>
+    <tr><th>Назва</th><th>Адреса</th><th>На карті</th><th class="num">Відкриті вакансії</th><th class="num">Усього вакансій</th></tr>
+  </thead>
+  <tbody>
+  {% for c in companies %}
+    <tr>
+      <td><a href="{% url 'recruiting:company_edit' c.pk %}"><strong>{{ c.name }}</strong></a>
+        {% if c.contact_person or c.phone %}<div class="muted small">{{ c.contact_person }}{% if c.contact_person and c.phone %} · {% endif %}{{ c.phone }}</div>{% endif %}</td>
+      <td>{{ c.address|default:"—" }}</td>
+      <td>{% if c.has_location %}<span class="loc-ok">📍 так</span>{% else %}<a href="{% url 'recruiting:company_edit' c.pk %}" class="loc-missing">вказати на карті</a>{% endif %}</td>
+      <td class="num">{{ c.open_vacancies }}</td>
+      <td class="num">{{ c.all_vacancies }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5" class="muted">Підприємств ще немає.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -5,17 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}CRM рекрутингу{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block head %}{% endblock %}
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="{% url 'recruiting:vacancy_list' %}">CRM рекрутингу</a>
     {% if user.is_authenticated %}
+      {% with current=request.resolver_match.url_name %}
       <nav>
-        <a href="{% url 'recruiting:vacancy_list' %}">Вакансії</a>
+        <a href="{% url 'recruiting:dashboard' %}" class="{% if current == 'dashboard' %}current{% endif %}">Дашборд</a>
+        <a href="{% url 'recruiting:vacancy_list' %}" class="{% if current == 'vacancy_list' %}current{% endif %}">Вакансії</a>
+        <a href="{% url 'recruiting:company_list' %}" class="{% if current == 'company_list' or current == 'company_edit' or current == 'company_create' %}current{% endif %}">Підприємства</a>
         {% if user.is_staff %}<a href="{% url 'admin:index' %}">Адмінка</a>{% endif %}
         <span class="muted">{{ user.get_full_name|default:user.username }}</span>
         <form method="post" action="{% url 'logout' %}" class="inline">{% csrf_token %}<button class="link">Вийти</button></form>
       </nav>
+      {% endwith %}
     {% endif %}
   </header>
   <main>

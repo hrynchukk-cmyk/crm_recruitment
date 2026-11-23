@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% load static crm %}
+{% block title %}Дашборд — CRM рекрутингу{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'vendor/leaflet/leaflet.css' %}">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Дашборд</h1>
+  <div class="filters">
+    <a class="chip {% if mine %}active{% endif %}" href="?{% if not mine %}mine=1{% endif %}{% if include_paused %}{% if not mine %}&{% endif %}paused=1{% endif %}">Лише мої вакансії</a>
+    <a class="chip {% if include_paused %}active{% endif %}" href="?{% if mine %}mine=1{% endif %}{% if not include_paused %}{% if mine %}&{% endif %}paused=1{% endif %}">Показати вакансії на паузі</a>
+  </div>
+</div>
+
+<section class="kpis" aria-label="Ключові показники">
+  <div class="kpi hero">
+    <div class="kpi-label">Ще потрібно найняти</div>
+    <div class="kpi-value">{{ data.kpis.remaining }}</div>
+    <div class="kpi-sub">людей на відкритих вакансіях</div>
+  </div>
+  <div class="kpi"><div class="kpi-label">Відкриті вакансії</div><div class="kpi-value">{{ data.kpis.open_vacancies }}</div></div>
+  <div class="kpi"><div class="kpi-label">Зателефонувати</div><div class="kpi-value">{{ data.kpis.to_call }}</div><div class="kpi-sub">нові кандидати</div></div>
+  <div class="kpi"><div class="kpi-label">Кандидатів у роботі</div><div class="kpi-value">{{ data.kpis.in_work }}</div></div>
+  <div class="kpi"><div class="kpi-label">Співбесіди попереду</div><div class="kpi-value">{{ data.kpis.upcoming_interviews }}</div></div>
+  <div class="kpi"><div class="kpi-label">Вийшли на роботу</div><div class="kpi-value">{{ data.kpis.hired_30d }}</div><div class="kpi-sub">за 30 днів</div></div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>Підприємства на карті Львова</h2>
+      <p class="muted small">Наведіть на точку, щоб побачити вакансії підприємства; клацніть, щоб перейти до вакансії.</p>
+    </div>
+    <ul class="map-legend" aria-label="Легенда карти">
+      <li><span class="co-marker legend-dot"><span>2</span></span> є відкриті вакансії (число — скільки вакансій)</li>
+      {% if include_paused %}<li><span class="co-marker paused legend-dot"><span>1</span></span> лише на паузі</li>{% endif %}
+    </ul>
+  </div>
+  <div id="dash-map" class="map map-dashboard" role="application" aria-label="Карта Львова з підприємствами"></div>
+  {% if data.missing_location %}
+    <p class="small missing-loc">Не позначені на карті:
+      {% for c in data.missing_location %}<a href="{% url 'recruiting:company_edit' c.pk %}?next={{ request.get_full_path|urlencode }}">{{ c.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+      — клацніть, щоб вказати розташування.</p>
+  {% endif %}
+  {% if not data.companies and not data.missing_location %}
+    <p class="muted small">Немає {% if include_paused %}відкритих чи призупинених{% else %}відкритих{% endif %} вакансій.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Статус вакансій</h2>
+    <ul class="pipe-legend" aria-label="Етапи воронки">
+      {% for key, label in pipeline %}<li><span class="swatch seg-{{ key }}"></span>{{ label }}</li>{% endfor %}
+    </ul>
+  </div>
+  <table class="table dash-table">
+    <thead>
+      <tr>
+        <th>Вакансія</th>
+        <th class="num">Активна</th>
+        <th class="num">Кандидатів</th>
+        <th class="pipe-col">Воронка кандидатів</th>
+        <th class="num">Співбесіди</th>
+        <th class="num">Вийшли / треба</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in data.rows %}
+      <tr>
+        <td data-label="Вакансія"><a href="{{ row.vacancy.get_absolute_url }}"><strong>{{ row.vacancy.title }}</strong></a>
+          {% if row.vacancy.status != 'open' %}<span class="badge">{{ row.vacancy.get_status_display }}</span>{% endif %}
+          <div class="muted small">{{ row.vacancy.company }}</div></td>
+        <td class="num" data-label="Активна">{{ row.vacancy.days_active|days }}</td>
+        <td class="num" data-label="Кандидатів">{{ row.total }}</td>
+        <td class="pipe-col" data-label="Воронка">
+          {% if row.total %}
+            <div class="pipe" role="img" aria-label="{{ row.summary }}">
+              {% for seg in row.segments %}{% if seg.count %}<span class="seg seg-{{ seg.key }}" style="flex-grow: {{ seg.count }}" tabindex="0" data-tip="{{ seg.label }}: {{ seg.count }} ({{ seg.share }}%)"></span>{% endif %}{% endfor %}
+            </div>
+          {% else %}<span class="muted small">кандидатів ще немає</span>{% endif %}
+        </td>
+        <td class="num" data-label="Співбесіди">{{ row.counts.interview }}{% if row.upcoming_interviews %} <span class="muted small">(попереду {{ row.upcoming_interviews }})</span>{% endif %}</td>
+        <td class="num" data-label="Вийшли / треба">{{ row.hired }} / {{ row.vacancy.headcount }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="muted">Немає відкритих вакансій.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div id="viz-tip" class="viz-tip" role="tooltip" hidden></div>
+{{ data.companies|json_script:"map-data" }}
+<script src="{% static 'vendor/leaflet/leaflet.js' %}"></script>
+<script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}

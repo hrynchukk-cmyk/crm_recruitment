@@ -425,3 +425,105 @@ class VacancyFormTests(BaseTestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Vacancy.objects.filter(title="Комірник").exists())
+
+
+class DashboardTests(BaseTestCase):
+    def setUp(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        self.client.force_login(self.user)
+        self.company.address = "вул. Городоцька, 172"
+        self.company.latitude, self.company.longitude = "49.833400", "23.963500"
+        self.company.save()
+        self.vacancy.opened_on = timezone.localdate() - timedelta(days=12)
+        self.vacancy.headcount = 3
+        self.vacancy.save()
+        stages = ["new", "new", "viber", "interview", "hired", "rejected_by_us"]
+        for i, stage in enumerate(stages):
+            c = Candidate.objects.create(full_name=f"К{i}", phone=f"06700000{i:02d}")
+            a, _ = attach_candidate(self.vacancy, c)
+            if stage != "new":
+                change_stage(a, stage)
+        interview = self.vacancy.applications.get(stage="interview")
+        interview.interview_at = timezone.now() + timedelta(days=1)
+        interview.save()
+        # Підприємство без точки на карті і вакансія на паузі.
+        self.shop = Company.objects.create(name="Магазин")
+        Vacancy.objects.create(company=self.shop, title="Касир", headcount=2)
+        Vacancy.objects.create(company=self.company, title="Пауза", status="paused")
+
+    def test_build_dashboard(self):
+        from .dashboard import build_dashboard
+
+        data = build_dashboard()
+        row = next(r for r in data.rows if r.vacancy == self.vacancy)
+        self.assertEqual(row.counts, {"to_call": 2, "working": 1, "interview": 1, "hired": 1, "dropped": 1})
+        self.assertEqual(row.total, 6)
+        self.assertEqual(row.upcoming_interviews, 1)
+        self.assertEqual(row.vacancy.days_active, 12)
+        self.assertEqual(data.kpis["remaining"], 2 + 2)  # 3−1 на «Оператор лінії» + 2 на «Касир»
+        self.assertEqual(data.kpis["open_vacancies"], 2)
+        self.assertEqual(data.kpis["to_call"], 2)
+        self.assertEqual(data.kpis["hired_30d"], 1)
+        self.assertEqual([c.name for c in data.missing_location], ["Магазин"])
+        [company] = data.companies
+        self.assertEqual(company["name"], self.company.name)
+        self.assertEqual(company["lat"], 49.8334)
+        self.assertEqual([v["title"] for v in company["vacancies"]], ["Оператор лінії"])  # пауза прихована
+        vac = company["vacancies"][0]
+        self.assertEqual((vac["days_active"], vac["total"], vac["to_call"], vac["hired"], vac["headcount"]), (12, 6, 2, 1, 3))
+
+        with_paused = build_dashboard(include_paused=True)
+        self.assertEqual(len(with_paused.companies[0]["vacancies"]), 2)
+
+    def test_dashboard_page(self):
+        response = self.client.get(reverse("recruiting:dashboard"))
+        self.assertContains(response, "Ще потрібно найняти")
+        self.assertContains(response, "12 днів")
+        self.assertContains(response, 'id="map-data"')
+        self.assertContains(response, "Не позначені на карті")
+        self.assertContains(response, "Зателефонувати: 2 (33%)")
+
+    def test_dashboard_escapes_names_in_map_json(self):
+        self.company.name = "</script><b>x"
+        self.company.save()
+        response = self.client.get(reverse("recruiting:dashboard"))
+        self.assertNotContains(response, "</script><b>x")
+
+    def test_days_plural(self):
+        from .templatetags.crm import days
+
+        self.assertEqual([days(n) for n in (0, 1, 2, 5, 11, 21, 22, 34, 112)],
+                         ["0 днів", "1 день", "2 дні", "5 днів", "11 днів", "21 день", "22 дні", "34 дні", "112 днів"])
+
+    def test_closed_on_set_and_cleared(self):
+        self.vacancy.status = "closed"
+        self.vacancy.save()
+        self.assertIsNotNone(self.vacancy.closed_on)
+        self.vacancy.status = "open"
+        self.vacancy.save()
+        self.assertIsNone(self.vacancy.closed_on)
+
+
+class CompanyPagesTests(BaseTestCase):
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def test_create_company_with_location(self):
+        response = self.client.post(
+            reverse("recruiting:company_create"),
+            {"name": "Нове", "address": "вул. Зелена, 1", "latitude": "49.830000", "longitude": "24.050000"},
+        )
+        self.assertEqual(response.status_code, 302)
+        company = Company.objects.get(name="Нове")
+        self.assertTrue(company.has_location)
+
+    def test_half_location_rejected(self):
+        response = self.client.post(reverse("recruiting:company_create"), {"name": "Нове", "latitude": "49.83"})
+        self.assertContains(response, "не повністю")
+
+    def test_list_and_edit_pages(self):
+        self.assertContains(self.client.get(reverse("recruiting:company_list")), "вказати на карті")
+        self.assertContains(self.client.get(reverse("recruiting:company_edit", args=[self.company.pk])), 'id="company-map"')

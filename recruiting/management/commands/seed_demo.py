@@ -42,23 +42,38 @@ class Command(BaseCommand):
             self.stdout.write("Створено користувача admin / admin")
 
         rng = random.Random(42)
-        plant = Company.objects.get_or_create(name="ТОВ «Львівський хлібозавод»", defaults={"phone": "+380322000000"})[0]
-        logistics = Company.objects.get_or_create(name="Склад «Захід-Логістик»")[0]
+        today = timezone.localdate()
+        # Демо-підприємства з приблизними точками у Львові (вигадані назви).
+        plant = Company.objects.get_or_create(
+            name="ТОВ «Львівський хлібозавод»",
+            defaults={"phone": "+380322000000", "address": "вул. Городоцька, 172", "latitude": "49.833400", "longitude": "23.963500"},
+        )[0]
+        logistics = Company.objects.get_or_create(
+            name="Склад «Захід-Логістик»",
+            defaults={"address": "вул. Персенківка, 5", "latitude": "49.807900", "longitude": "24.048600"},
+        )[0]
+        shop = Company.objects.get_or_create(name="Магазин «Без точки на карті»")[0]
+        Vacancy.objects.get_or_create(company=shop, title="Продавець-касир", defaults={"headcount": 2})
 
         vacancies = [
             Vacancy.objects.get_or_create(
                 company=logistics, title="Комірник",
-                defaults={"salary": "від 24 000 грн", "headcount": 2, "recruiter": admin, "workua_job_id": "1000001"},
+                defaults={"salary": "від 24 000 грн", "headcount": 2, "recruiter": admin, "workua_job_id": "1000001",
+                          "opened_on": today - timezone.timedelta(days=12)},
             )[0],
             Vacancy.objects.get_or_create(
-                company=plant, title="Пекар", defaults={"salary": "від 22 000 грн", "headcount": 3, "recruiter": admin}
+                company=plant, title="Пекар",
+                defaults={"salary": "від 22 000 грн", "headcount": 3, "recruiter": admin,
+                          "opened_on": today - timezone.timedelta(days=34)},
             )[0],
             Vacancy.objects.get_or_create(
                 company=logistics, title="Комплектувальник на склад",
-                defaults={"salary": "25 000 – 30 000 грн", "headcount": 5, "recruiter": admin},
+                defaults={"salary": "25 000 – 30 000 грн", "headcount": 5, "recruiter": admin,
+                          "opened_on": today - timezone.timedelta(days=5)},
             )[0],
             Vacancy.objects.get_or_create(
-                company=plant, title="Водій категорії C", defaults={"salary": "30 000 грн", "headcount": 1}
+                company=plant, title="Водій категорії C",
+                defaults={"salary": "30 000 грн", "headcount": 1, "opened_on": today - timezone.timedelta(days=1)},
             )[0],
         ]
 

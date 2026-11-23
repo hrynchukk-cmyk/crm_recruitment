@@ -1,4 +1,5 @@
 import re
+from django.utils import timezone
 
 from django.conf import settings
 from django.db import models
@@ -13,6 +14,8 @@ class Company(models.Model):
     phone = models.CharField("телефон", max_length=50, blank=True)
     email = models.EmailField("email", blank=True)
     address = models.CharField("адреса", max_length=255, blank=True)
+    latitude = models.DecimalField("широта", max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField("довгота", max_digits=9, decimal_places=6, null=True, blank=True)
     notes = models.TextField("нотатки", blank=True)
     created_at = models.DateTimeField("створено", auto_now_add=True)
 
@@ -23,6 +26,13 @@ class Company(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def get_absolute_url(self) -> str:
+        return reverse("recruiting:company_edit", args=[self.pk])
+
+    @property
+    def has_location(self) -> bool:
+        return self.latitude is not None and self.longitude is not None
 
 
 class Vacancy(models.Model):
@@ -55,6 +65,12 @@ class Vacancy(models.Model):
         help_text="Номер з посилання work.ua/jobs/<ID>/ — потрібен для синхронізації відгуків.",
     )
     workua_synced_at = models.DateTimeField("остання синхронізація з Work.ua", null=True, blank=True)
+    opened_on = models.DateField(
+        "дата публікації",
+        default=timezone.localdate,
+        help_text="Коли вакансію опублікували (на Work.ua). Від неї рахуються «дні активності».",
+    )
+    closed_on = models.DateField("дата закриття", null=True, blank=True)
     created_at = models.DateTimeField("створено", auto_now_add=True)
     updated_at = models.DateTimeField("оновлено", auto_now=True)
 
@@ -79,6 +95,20 @@ class Vacancy(models.Model):
     @property
     def workua_url(self) -> str:
         return f"https://www.work.ua/jobs/{self.workua_job_id}/" if self.workua_job_id else ""
+
+    def save(self, *args, **kwargs):
+        # Дата закриття ставиться сама, коли вакансію закривають, і знімається, якщо відкрили знову.
+        if self.status == self.Status.CLOSED and not self.closed_on:
+            self.closed_on = timezone.localdate()
+        elif self.status != self.Status.CLOSED:
+            self.closed_on = None
+        super().save(*args, **kwargs)
+
+    @property
+    def days_active(self) -> int:
+        """Скільки днів вакансія активна (для закритої — скільки днів була відкрита)."""
+        end = self.closed_on or timezone.localdate()
+        return max((end - self.opened_on).days, 0)
 
 
 class Candidate(models.Model):

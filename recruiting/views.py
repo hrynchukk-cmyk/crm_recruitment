@@ -8,10 +8,20 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .forms import AddCandidateForm, CandidateForm, ImportForm, NoteForm, NoteInlineForm, StageForm, VacancyForm
+from .dashboard import PIPELINE, build_dashboard
+from .forms import (
+    AddCandidateForm,
+    CandidateForm,
+    CompanyForm,
+    ImportForm,
+    NoteForm,
+    NoteInlineForm,
+    StageForm,
+    VacancyForm,
+)
 from .importer import import_csv
 from .integrations.workua import WorkUaError, sync_vacancy
-from .models import Application, Candidate, Vacancy
+from .models import Application, Candidate, Company, Vacancy
 from .services import add_note, attach_candidate, change_stage, find_existing_candidate
 
 # Кнопки швидкого результату дзвінка на картці кандидата.
@@ -62,6 +72,51 @@ def vacancy_list(request):
         request,
         "recruiting/vacancy_list.html",
         {"vacancies": vacancies, "status": status, "statuses": Vacancy.Status.choices},
+    )
+
+
+@login_required
+def dashboard(request):
+    include_paused = bool(request.GET.get("paused"))
+    mine = bool(request.GET.get("mine"))
+    data = build_dashboard(include_paused=include_paused, recruiter=request.user if mine else None)
+    return render(
+        request,
+        "recruiting/dashboard.html",
+        {
+            "data": data,
+            "include_paused": include_paused,
+            "mine": mine,
+            "pipeline": [(key, label) for key, label, _ in PIPELINE],
+        },
+    )
+
+
+@login_required
+def company_list(request):
+    companies = Company.objects.annotate(
+        open_vacancies=Count("vacancies", filter=Q(vacancies__status=Vacancy.Status.OPEN)),
+        all_vacancies=Count("vacancies"),
+    )
+    return render(request, "recruiting/company_list.html", {"companies": companies})
+
+
+@login_required
+def company_form(request, pk=None):
+    company = get_object_or_404(Company, pk=pk) if pk else None
+    form = CompanyForm(request.POST or None, instance=company)
+    if request.method == "POST" and form.is_valid():
+        company = form.save()
+        messages.success(
+            request,
+            f"Підприємство «{company}» збережено."
+            + ("" if company.has_location else " Точку на карті не вказано — на дашборді його не буде видно."),
+        )
+        return redirect(_safe_next(request, reverse("recruiting:company_list")))
+    return render(
+        request,
+        "recruiting/company_form.html",
+        {"form": form, "company": company, "next": request.GET.get("next", "")},
     )
 
 

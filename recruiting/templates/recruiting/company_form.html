@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{% if company %}{{ company.name }}{% else %}Нове підприємство{% endif %} — CRM рекрутингу{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'vendor/leaflet/leaflet.css' %}">{% endblock %}
+{% block content %}
+<div class="card narrow-xl">
+  <a class="muted small" href="{% url 'recruiting:company_list' %}">← Підприємства</a>
+  <h1>{% if company %}{{ company.name }}{% else %}Нове підприємство{% endif %}</h1>
+
+  <form method="post" class="form company-form">
+    {% csrf_token %}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    {{ form.non_field_errors }}
+    {{ form.latitude }}{{ form.longitude }}
+    {% with field=form.name %}{% include "recruiting/_field.html" %}{% endwith %}
+
+    <div class="field">
+      <label for="{{ form.address.id_for_label }}">Адреса і точка на карті</label>
+      <div class="row">
+        {{ form.address }}
+        <button type="button" class="btn" id="geocode-btn">Знайти на карті</button>
+      </div>
+      {% for error in form.address.errors %}<div class="error">{{ error }}</div>{% endfor %}
+      <div class="muted small" id="map-hint">Впишіть адресу й натисніть «Знайти на карті» — або просто клацніть на карті там, де підприємство. Точку можна перетягнути.</div>
+      <div id="company-map" class="map map-picker" role="application" aria-label="Карта для вибору розташування підприємства"></div>
+      <div class="small" id="map-status"></div>
+      <button type="button" class="btn small-btn" id="clear-point" hidden>Прибрати точку</button>
+    </div>
+
+    {% with field=form.contact_person %}{% include "recruiting/_field.html" %}{% endwith %}
+    {% with field=form.phone %}{% include "recruiting/_field.html" %}{% endwith %}
+    {% with field=form.email %}{% include "recruiting/_field.html" %}{% endwith %}
+    {% with field=form.notes %}{% include "recruiting/_field.html" %}{% endwith %}
+
+    <div class="actions"><button class="btn primary">Зберегти</button></div>
+  </form>
+</div>
+<script src="{% static 'vendor/leaflet/leaflet.js' %}"></script>
+<script src="{% static 'js/company_map.js' %}"></script>
+{% endblock %}
