@@ -14,6 +14,9 @@
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    // OSM вимагає Referer, а сайт загалом шле політику same-origin (без Referer назовні).
+    // Для тайлів передаємо лише адресу сайту, без шляху сторінки.
+    referrerPolicy: "strict-origin-when-cross-origin",
   }).addTo(map);
 
   var pinIcon = L.divIcon({ className: "pin", html: "<span></span>", iconSize: [24, 24], iconAnchor: [12, 24] });
@@ -62,7 +65,8 @@
     geocodeBtn.disabled = true;
     var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ua&accept-language=uk" +
       "&viewbox=23.85,49.93,24.20,49.76&q=" + encodeURIComponent(query);
-    fetch(url, { headers: { "Accept": "application/json" } })
+    // Nominatim (як і тайли OSM) вимагає Referer — передаємо лише адресу сайту.
+    fetch(url, { headers: { "Accept": "application/json" }, referrerPolicy: "strict-origin-when-cross-origin" })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (results) {
         if (!results.length) {

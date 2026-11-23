@@ -60,6 +60,9 @@
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      // OSM вимагає Referer, а сайт загалом шле політику same-origin (без Referer назовні).
+      // Для тайлів передаємо лише адресу сайту, без шляху сторінки.
+      referrerPolicy: "strict-origin-when-cross-origin",
     }).addTo(map);
     map.on("focus", function () { map.scrollWheelZoom.enable(); });
     map.on("blur", function () { map.scrollWheelZoom.disable(); });
