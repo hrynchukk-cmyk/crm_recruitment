@@ -1,6 +1,7 @@
 from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator, validate_email
+from django.utils import timezone
 
 from .models import Application, Candidate, Company, Vacancy, parse_workua_link
 
@@ -31,15 +32,25 @@ class VacancyForm(forms.ModelForm):
             "salary",
             "headcount",
             "status",
+            "opened_on",
             "recruiter",
             "workua_job_id",
             "description",
         ]
-        widgets = {"description": forms.Textarea(attrs={"rows": 5})}
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 5}),
+            "opened_on": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["company"].required = False
+        self.fields["company"].help_text = "Щоб підприємство з'явилося на дашборді, позначте його на карті в розділі «Підприємства»."
+        self.fields["opened_on"].required = False
+
+    def clean_opened_on(self):
+        # Не вказали — вважаємо, що вакансію опублікували сьогодні.
+        return self.cleaned_data.get("opened_on") or timezone.localdate()
 
     def clean(self):
         cleaned = super().clean()
@@ -62,6 +73,37 @@ class VacancyForm(forms.ModelForm):
         if value and not value.isdigit():
             raise forms.ValidationError("Вкажіть номер вакансії або посилання на неї на Work.ua.")
         return value
+
+
+class CompanyForm(forms.ModelForm):
+    """Підприємство з точкою на карті (широту й довготу заповнює карта на сторінці)."""
+
+    email = forms.EmailField(
+        label="Email",
+        required=False,
+        widget=forms.TextInput(attrs={"inputmode": "email", "placeholder": "необов'язково"}),
+        error_messages={"invalid": "Схоже, це не email. Якщо невідомий — залиште поле порожнім."},
+    )
+
+    class Meta:
+        model = Company
+        fields = ["name", "address", "latitude", "longitude", "contact_person", "phone", "email", "notes"]
+        labels = {"address": "Адреса"}
+        widgets = {
+            "address": forms.TextInput(attrs={"placeholder": "напр. вул. Городоцька, 172"}),
+            "latitude": forms.HiddenInput(),
+            "longitude": forms.HiddenInput(),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        lat, lng = cleaned.get("latitude"), cleaned.get("longitude")
+        if (lat is None) != (lng is None):
+            raise forms.ValidationError("Точку на карті задано не повністю — поставте її ще раз.")
+        if lat is not None and not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise forms.ValidationError("Некоректні координати — поставте точку на карті ще раз.")
+        return cleaned
 
 
 # Те, що пишуть у таблицях замість «невідомо», — вважаємо порожнім значенням.
