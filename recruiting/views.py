@@ -63,7 +63,7 @@ def vacancy_list(request):
         sourced_new=_channel_count(C.SOURCED, new_only=True),
         interviews=Count("applications", filter=Q(applications__stage=Application.Stage.INTERVIEW)),
         hired=Count("applications", filter=Q(applications__stage=Application.Stage.HIRED)),
-    )
+    ).order_by("status", "-created_at", "-pk")  # явно: запит з підрахунками не бере сортування з моделі
     if status != "all":
         vacancies = vacancies.filter(status=status)
     if request.GET.get("mine"):
@@ -126,8 +126,9 @@ def vacancy_form(request, pk=None):
     form = VacancyForm(request.POST or None, instance=vacancy, initial=None if vacancy else {"recruiter": request.user})
     if request.method == "POST" and form.is_valid():
         vacancy = form.save()
-        messages.success(request, "Вакансію збережено.")
-        return redirect(vacancy)
+        messages.success(request, f"Вакансію «{vacancy.title}» збережено.")
+        # Після збереження — на вкладку «Вакансії», на фільтр зі статусом цієї вакансії, з підсвіченим рядком.
+        return redirect(f"{reverse('recruiting:vacancy_list')}?status={vacancy.status}&saved={vacancy.pk}")
     return render(request, "recruiting/vacancy_form.html", {"form": form, "vacancy": vacancy})
 
 

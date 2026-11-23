@@ -27,7 +27,7 @@
   </thead>
   <tbody>
   {% for v in vacancies %}
-    <tr>
+    <tr{% if request.GET.saved == v.pk|stringformat:"d" %} class="just-saved"{% endif %}>
       <td><a href="{{ v.get_absolute_url }}"><strong>{{ v.title }}</strong></a>
         {% if v.status != 'open' %}<span class="badge">{{ v.get_status_display }}</span>{% endif %}
         <div class="muted small">{{ v.company }} · {{ v.city }}{% if v.salary %} · {{ v.salary }}{% endif %}
