@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Імпорт — {{ vacancy.title }}{% endblock %}
+{% block content %}
+<div class="card narrow-lg">
+  <a class="muted small" href="{{ vacancy.get_absolute_url }}">← {{ vacancy.title }}</a>
+  <h1>Імпорт кандидатів з таблиці</h1>
+  <ol class="steps">
+    <li>У Google Таблиці відкрийте вкладку цієї вакансії (наприклад, «{{ vacancy.title }}»).</li>
+    <li><strong>Файл → Завантажити → Значення, розділені комами (.csv)</strong>.</li>
+    <li>Виберіть завантажений файл нижче.</li>
+  </ol>
+  <p class="muted small">Перший рядок має містити назви колонок: <strong>Лінк, Ім'я, Вік, Контакт, Район, Статус, Примітка</strong> (порядок не важливий).
+    Посилання …/my/applicants/… потраплять у «Відгуки», а …/my/recommended/… — у «Рекомендовані Work.ua».
+    Порожні рядки пропускаються, а повторний імпорт не створює дублікатів.</p>
+
+  {% if result %}
+    <div class="messages"><div class="msg-warning">
+      {{ result.summary }}
+      <ul>{% for e in result.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+      <a href="{{ vacancy.get_absolute_url }}?channel=all">Перейти до кандидатів →</a>
+    </div></div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" class="form">
+    {% csrf_token %}
+    {% include "recruiting/_form_fields.html" %}
+    <div class="actions"><button class="btn primary">Імпортувати</button></div>
+  </form>
+</div>
+{% endblock %}

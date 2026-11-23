@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Вакансії — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Вакансії</h1>
+  <a class="btn primary" href="{% url 'recruiting:vacancy_create' %}">+ Нова вакансія</a>
+</div>
+
+<div class="filters">
+  {% for value, label in statuses %}
+    <a class="chip {% if status == value %}active{% endif %}" href="?status={{ value }}">{{ label }}</a>
+  {% endfor %}
+  <a class="chip {% if status == 'all' %}active{% endif %}" href="?status=all">Усі</a>
+  <a class="chip {% if request.GET.mine %}active{% endif %}" href="?status={{ status }}{% if not request.GET.mine %}&mine=1{% endif %}">Лише мої</a>
+</div>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Посада</th>
+      <th class="num">Відгуки</th>
+      <th class="num">Рекомендовані</th>
+      <th class="num">Підібрані</th>
+      <th class="num">Співбесіди</th>
+      <th class="num">Вийшли / треба</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for v in vacancies %}
+    <tr>
+      <td><a href="{{ v.get_absolute_url }}"><strong>{{ v.title }}</strong></a>
+        {% if v.status != 'open' %}<span class="badge">{{ v.get_status_display }}</span>{% endif %}
+        <div class="muted small">{{ v.company }} · {{ v.city }}{% if v.salary %} · {{ v.salary }}{% endif %}
+          · {% if v.recruiter %}{{ v.recruiter.get_full_name|default:v.recruiter.username }}{% else %}без рекрутера{% endif %}</div></td>
+      <td class="num"><a href="{{ v.get_absolute_url }}?channel=response">{{ v.responses }}</a>{% if v.responses_new %} <span class="badge stage-new" title="нові">+{{ v.responses_new }}</span>{% endif %}</td>
+      <td class="num"><a href="{{ v.get_absolute_url }}?channel=recommended">{{ v.recommended }}</a>{% if v.recommended_new %} <span class="badge stage-new" title="нові">+{{ v.recommended_new }}</span>{% endif %}</td>
+      <td class="num"><a href="{{ v.get_absolute_url }}?channel=sourced">{{ v.sourced }}</a>{% if v.sourced_new %} <span class="badge stage-new" title="нові">+{{ v.sourced_new }}</span>{% endif %}</td>
+      <td class="num">{{ v.interviews }}</td>
+      <td class="num">{{ v.hired }} / {{ v.headcount }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="muted">Вакансій немає.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted small">«+N» — нові кандидати, з якими ще не працювали.</p>
+{% endblock %}

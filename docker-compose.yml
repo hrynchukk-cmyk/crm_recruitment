@@ -1,0 +1,33 @@
+# Окремий проєкт Docker Compose: усі контейнери, мережа й том бази мають префікс
+# «crm_recruitment» і не перетинаються з іншими проєктами на цьому комп'ютері.
+name: crm_recruitment
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Порт бази назовні не відкривається — до неї має доступ лише CRM.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # Лише для цього комп'ютера (127.0.0.1). Порт змінюється в .env (CRM_PORT), якщо 8100 зайнятий.
+      - "127.0.0.1:${CRM_PORT:-8100}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
