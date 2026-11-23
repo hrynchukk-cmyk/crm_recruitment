@@ -14,7 +14,8 @@
     <h2>Контакти</h2>
     <dl class="props">
       <dt>Телефон</dt><dd>{% if candidate.phone %}<a class="phone" href="tel:{{ candidate.phone }}">📞 {{ candidate.phone_display }}</a>
-        <a class="viber" href="{{ candidate.viber_url }}">Написати у Viber</a>{% else %}—{% endif %}</dd>
+        <a class="viber" href="{{ candidate.viber_url }}" title="Відкрити чат з кандидатом у Viber">💬 Відкрити чат у Viber</a>{% else %}—{% endif %}</dd>
+      <dt>Статус</dt><dd><span class="badge stage-{{ application.stage }}">{{ application.get_stage_display }}</span></dd>
       <dt>Вік</dt><dd>{{ candidate.age|default:"—" }}</dd>
       <dt>Район</dt><dd>{{ candidate.get_district_display|default:"—" }}</dd>
       <dt>Місто</dt><dd>{{ candidate.city|default:"—" }}</dd>

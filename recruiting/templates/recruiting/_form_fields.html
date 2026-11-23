@@ -1,9 +1,2 @@
 {{ form.non_field_errors }}
-{% for field in form %}
-  <div class="field{% if field.errors %} has-error{% endif %}">
-    <label for="{{ field.id_for_label }}">{{ field.label|capfirst }}</label>
-    {{ field }}
-    {% if field.help_text %}<div class="muted small">{{ field.help_text }}</div>{% endif %}
-    {% for error in field.errors %}<div class="error">{{ error }}</div>{% endfor %}
-  </div>
-{% endfor %}
+{% for field in form %}{% include "recruiting/_field.html" %}{% endfor %}

@@ -1,4 +1,6 @@
 from django import forms
+from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator, validate_email
 
 from .models import Application, Candidate, Company, Vacancy, parse_workua_link
 
@@ -62,7 +64,27 @@ class VacancyForm(forms.ModelForm):
         return value
 
 
+# Те, що пишуть у таблицях замість «невідомо», — вважаємо порожнім значенням.
+EMPTY_PLACEHOLDERS = {"-", "—", "–", "?", "немає", "нема", "нет", "n/a", "na", "немає email", "немає пошти"}
+
+
 class CandidateForm(forms.ModelForm):
+    # Звичайні текстові поля замість type=email / type=url: браузер не блокує форму
+    # англомовними підказками, а перевірку робимо самі з повідомленнями українською.
+    resume_url = forms.CharField(
+        label="Посилання (Work.ua)",
+        required=False,
+        max_length=500,
+        help_text="Посилання на відгук (…/my/applicants/…), рекомендацію (…/my/recommended/…) або резюме (…/resumes/…).",
+        widget=forms.TextInput(attrs={"placeholder": "https://www.work.ua/…", "autofocus": True, "inputmode": "url"}),
+    )
+    email = forms.CharField(
+        label="Email",
+        required=False,
+        max_length=254,
+        widget=forms.TextInput(attrs={"placeholder": "необов'язково", "inputmode": "email", "autocomplete": "off"}),
+    )
+
     class Meta:
         model = Candidate
         fields = [
@@ -77,18 +99,46 @@ class CandidateForm(forms.ModelForm):
             "resume_text",
             "notes",
         ]
-        labels = {"resume_url": "Посилання (Work.ua)", "notes": "Загальні нотатки про людину"}
-        help_texts = {
-            "resume_url": "Посилання на відгук (…/my/applicants/…), рекомендацію (…/my/recommended/…) "
-            "або резюме (…/resumes/…).",
-        }
+        labels = {"notes": "Загальні нотатки про людину"}
         widgets = {
-            "resume_url": forms.URLInput(attrs={"placeholder": "https://www.work.ua/…", "autofocus": True}),
             "age": forms.NumberInput(attrs={"min": 14, "max": 90}),
             "phone": forms.TextInput(attrs={"placeholder": "093 123-45-67", "inputmode": "tel"}),
             "resume_text": forms.Textarea(attrs={"rows": 5}),
             "notes": forms.Textarea(attrs={"rows": 2}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["district"].choices = [("", "Не вказано"), *Candidate.District.choices]
+
+    def clean_email(self):
+        value = self.cleaned_data["email"].strip()
+        if value.lower() in EMPTY_PLACEHOLDERS:
+            return ""
+        if value:
+            try:
+                validate_email(value)
+            except ValidationError:
+                raise forms.ValidationError(
+                    "Схоже, це не email. Якщо email невідомий — просто залиште поле порожнім."
+                ) from None
+        return value
+
+    def clean_resume_url(self):
+        value = self.cleaned_data["resume_url"].strip()
+        if not value or value.lower() in EMPTY_PLACEHOLDERS:
+            return ""
+        if value.startswith("/"):  # скопійовано лише шлях: /my/applicants/123
+            value = "https://www.work.ua" + value
+        elif "://" not in value:
+            value = "https://" + value
+        try:
+            URLValidator(schemes=["http", "https"])(value)
+        except ValidationError:
+            raise forms.ValidationError(
+                "Не схоже на посилання. Приклад: https://www.work.ua/resumes/1234567/"
+            ) from None
+        return value
 
     def clean(self):
         cleaned = super().clean()
@@ -117,6 +167,18 @@ class AddCandidateForm(CandidateForm):
         fields = ["resume_url", "full_name", "age", "phone", "district", "city", "email", "source", "resume_text"]
 
     field_order = ["channel", "resume_url", "full_name", "age", "phone", "district", "note"]
+
+    # Рідко потрібні поля — у блоці «Додатково», щоб форма була короткою, як рядок таблиці.
+    EXTRA_FIELDS = ("city", "email", "source", "resume_text")
+
+    def main_fields(self):
+        return [field for field in self if field.name not in self.EXTRA_FIELDS]
+
+    def extra_fields(self):
+        return [field for field in self if field.name in self.EXTRA_FIELDS]
+
+    def extra_has_errors(self) -> bool:
+        return any(self.errors.get(name) for name in self.EXTRA_FIELDS)
 
     def clean(self):
         cleaned = super().clean()

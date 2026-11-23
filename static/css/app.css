@@ -125,8 +125,12 @@ details.card summary { cursor: pointer; font-weight: 600; }
 }
 
 /* Таблиця кандидатів як у Google Таблиці */
-.viber { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #efe7fb; color: #6a3bbf; font-size: .78rem; font-weight: 600; }
-.viber:hover { text-decoration: none; background: #e2d4f8; }
+/* Кнопка-дія «відкрити чат у Viber»: прямокутна, з рамкою — щоб не плутати з кольоровими плашками статусів. */
+.viber { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: .8rem; vertical-align: middle; }
+.viber:hover { text-decoration: none; border-color: var(--muted); }
+.extra-fields { margin: 4px 0 14px; }
+.extra-fields summary { cursor: pointer; color: var(--primary); margin-bottom: 10px; }
 .note-col { min-width: 220px; width: 32%; }
 .note-input { width: 100%; resize: none; overflow: hidden; border-color: transparent; background: transparent; padding: 6px 8px; font-size: .92rem; line-height: 1.35; }
 .note-input:hover { border-color: var(--border); }

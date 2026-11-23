@@ -13,7 +13,16 @@
   <form method="post" class="form">
     {% csrf_token %}
     {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-    {% include "recruiting/_form_fields.html" %}
+    {% if vacancy %}
+      {{ form.non_field_errors }}
+      {% for field in form.main_fields %}{% include "recruiting/_field.html" %}{% endfor %}
+      <details class="extra-fields"{% if form.extra_has_errors %} open{% endif %}>
+        <summary>Додатково: місто, email, джерело, текст резюме</summary>
+        {% for field in form.extra_fields %}{% include "recruiting/_field.html" %}{% endfor %}
+      </details>
+    {% else %}
+      {% include "recruiting/_form_fields.html" %}
+    {% endif %}
     <div class="actions">
       <button class="btn primary">Зберегти</button>
       {% if vacancy %}<button class="btn" name="add_another" value="1">Зберегти і додати ще</button>{% endif %}

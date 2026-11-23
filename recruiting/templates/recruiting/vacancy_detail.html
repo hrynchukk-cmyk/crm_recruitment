@@ -73,7 +73,7 @@
       <td class="nowrap" data-label="Контакт">
         {% if a.candidate.phone %}
           <a href="tel:{{ a.candidate.phone }}">{{ a.candidate.phone_display }}</a>
-          <a class="viber" href="{{ a.candidate.viber_url }}" title="Написати у Viber">Viber</a>
+          <a class="viber" href="{{ a.candidate.viber_url }}" title="Відкрити чат з кандидатом у Viber">💬 Viber</a>
         {% else %}—{% endif %}
       </td>
       <td data-label="Район">{{ a.candidate.get_district_display|default:"—" }}</td>

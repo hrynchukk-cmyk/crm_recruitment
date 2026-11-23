@@ -365,6 +365,49 @@ class InlineNoteTests(BaseTestCase):
         self.assertEqual(self.vacancy.applications.count(), 1)
 
 
+class AddCandidateFormTests(BaseTestCase):
+    def setUp(self):
+        self.client.force_login(self.user)
+        self.url = reverse("recruiting:vacancy_add_candidate", args=[self.vacancy.pk])
+        self.data = {"channel": "sourced", "full_name": "Тарас", "phone": "096 748-70-76", "source": "manual"}
+
+    def test_new_candidate_starts_with_call_status(self):
+        response = self.client.post(self.url, self.data)
+        application = self.vacancy.applications.get()
+        self.assertEqual(application.stage, Application.Stage.NEW)  # «Зателефонувати», не Viber
+        page = self.client.get(response["Location"])
+        self.assertContains(page, 'class="badge stage-new">Зателефонувати</span>', html=False)
+
+    def test_email_is_optional_and_placeholders_are_empty(self):
+        for value in ["", "-", "немає", "?"]:
+            with self.subTest(email=value):
+                Candidate.objects.all().delete()
+                response = self.client.post(self.url, {**self.data, "email": value})
+                self.assertEqual(response.status_code, 302, value)
+                self.assertEqual(Candidate.objects.get().email, "")
+
+    def test_invalid_email_shows_ukrainian_error(self):
+        response = self.client.post(self.url, {**self.data, "email": "taras.gmail"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Схоже, це не email")
+        self.assertContains(response, "<details class=\"extra-fields\" open>")  # блок з помилкою розгорнуто
+
+    def test_email_input_is_not_browser_validated(self):
+        page = self.client.get(self.url)
+        self.assertNotContains(page, 'type="email"')
+        self.assertNotContains(page, 'type="url"')
+
+    def test_relative_workua_link_is_accepted(self):
+        self.client.post(self.url, {**self.data, "resume_url": "/my/applicants/41683502"})
+        application = self.vacancy.applications.get()
+        self.assertEqual(application.candidate.resume_url, "https://www.work.ua/my/applicants/41683502")
+        self.assertEqual(application.channel, Application.Channel.RESPONSE)
+
+    def test_garbage_link_rejected(self):
+        response = self.client.post(self.url, {**self.data, "resume_url": "не знаю"})
+        self.assertContains(response, "Не схоже на посилання")
+
+
 class VacancyFormTests(BaseTestCase):
     def test_create_vacancy_with_new_company(self):
         self.client.force_login(self.user)
