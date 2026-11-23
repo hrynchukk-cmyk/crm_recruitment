@@ -1,15 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Вхід — CRM рекрутингу{% endblock %}
 {% block content %}
-<div class="card narrow">
-  <h1>Вхід</h1>
-  {% if form.errors %}<p class="error">Невірний логін або пароль.</p>{% endif %}
-  <form method="post">
+<div class="auth-card">
+  <div class="auth-brand">
+    <span class="brand-mark large" aria-hidden="true">Р</span>
+    <div>
+      <div class="auth-title">CRM рекрутингу</div>
+      <div class="muted small">Вакансії та кандидати в одному місці</div>
+    </div>
+  </div>
+  {% if form.errors %}<div class="errorlist">Невірний логін або пароль.</div>{% endif %}
+  <form method="post" class="form">
     {% csrf_token %}
-    <label>Логін {{ form.username }}</label>
-    <label>Пароль {{ form.password }}</label>
+    <div class="field"><label for="id_username">Логін</label>{{ form.username }}</div>
+    <div class="field"><label for="id_password">Пароль</label>{{ form.password }}</div>
     <input type="hidden" name="next" value="{{ next }}">
-    <button class="btn primary">Увійти</button>
+    <button class="btn primary block">Увійти</button>
   </form>
 </div>
 {% endblock %}
