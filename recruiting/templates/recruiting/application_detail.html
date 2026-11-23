@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="muted small" href="{{ application.vacancy.get_absolute_url }}?channel={{ application.channel }}">← {{ application.vacancy.title }} ({{ application.vacancy.company }}) · {{ application.get_channel_display }}</a>
+    <a class="muted small" href="{{ application.vacancy.get_absolute_url }}?channel={{ application.channel }}">← {{ application.vacancy.title }}{% if application.vacancy.company %} ({{ application.vacancy.company }}){% endif %} · {{ application.get_channel_display }}</a>
     <h1>{{ candidate.full_name }} <span class="badge stage-{{ application.stage }}">{{ application.get_stage_display }}</span></h1>
   </div>
   <a class="btn" href="{% url 'recruiting:candidate_edit' candidate.pk %}?next={{ request.path|urlencode }}">Редагувати дані</a>
@@ -23,7 +23,9 @@
       <dt>Розділ</dt><dd>{{ application.get_channel_display }}</dd>
       <dt>Додано</dt><dd>{{ application.applied_at|date:"d.m.Y H:i"|default:"—" }}</dd>
       {% if application.interview_at %}<dt>Співбесіда</dt><dd><strong>{{ application.interview_at|date:"d.m.Y H:i" }}</strong></dd>{% endif %}
+      {% if application.workua_from %}<dt>З Work.ua</dt><dd>{{ application.get_workua_from_display }}</dd>{% endif %}
       {% if candidate.resume_url %}<dt>Резюме</dt><dd><a href="{{ candidate.resume_url }}" target="_blank" rel="noopener">відкрити ↗</a></dd>{% endif %}
+      {% if application.workua_has_file %}<dt>Файл резюме</dt><dd><a class="btn small-btn" href="{% url 'recruiting:application_workua_file' application.pk %}" target="_blank" rel="noopener">⬇ Завантажити з Work.ua</a></dd>{% endif %}
     </dl>
     <h3>Примітка</h3>
     <form method="post" action="{% url 'recruiting:application_note_inline' application.pk %}" data-autosave>
@@ -36,7 +38,7 @@
     {% if candidate.resume_text %}<h3>Резюме</h3><div class="pre resume">{{ candidate.resume_text }}</div>{% endif %}
     {% if other_applications %}
       <h3>Інші вакансії цього кандидата</h3>
-      <ul>{% for o in other_applications %}<li><a href="{{ o.get_absolute_url }}">{{ o.vacancy.title }} — {{ o.vacancy.company }}</a> · {{ o.get_stage_display }}</li>{% endfor %}</ul>
+      <ul>{% for o in other_applications %}<li><a href="{{ o.get_absolute_url }}">{{ o.vacancy.title }}{% if o.vacancy.company %} — {{ o.vacancy.company }}{% endif %}</a> · {{ o.get_stage_display }}</li>{% endfor %}</ul>
     {% endif %}
   </section>
 

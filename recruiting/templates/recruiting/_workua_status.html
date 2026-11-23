@@ -1,0 +1,9 @@
+<div class="sync-status{% if workua_state.last_error %} has-error{% endif %}">
+  <span class="sync-dot" aria-hidden="true"></span>
+  {% if workua_state.last_success_at %}
+    Work.ua: синхронізовано {{ workua_state.last_success_at|date:"d.m.Y H:i" }}{% if workua_state.last_summary %} — {{ workua_state.last_summary|cut:"Work.ua: " }}{% endif %}.
+  {% else %}
+    Work.ua: синхронізації ще не було. Натисніть «Синхронізувати з Work.ua» — далі CRM робитиме це сама кожні {{ workua_sync_minutes|default:"15" }} хв.
+  {% endif %}
+  {% if workua_state.last_error %}<div class="sync-error">Остання помилка ({{ workua_state.last_run_at|date:"d.m H:i" }}): {{ workua_state.last_error }}</div>{% endif %}
+</div>

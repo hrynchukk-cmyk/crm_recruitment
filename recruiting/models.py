@@ -42,7 +42,13 @@ class Vacancy(models.Model):
         CLOSED = "closed", "Закрита"
 
     company = models.ForeignKey(
-        Company, verbose_name="підприємство", on_delete=models.PROTECT, related_name="vacancies"
+        Company,
+        verbose_name="підприємство",
+        on_delete=models.PROTECT,
+        related_name="vacancies",
+        null=True,
+        blank=True,
+        help_text="Порожнє лише для вакансій, щойно імпортованих з Work.ua, — призначте підприємство.",
     )
     title = models.CharField("посада", max_length=255)
     city = models.CharField("місто", max_length=100, default="Львів")
@@ -65,6 +71,12 @@ class Vacancy(models.Model):
         help_text="Номер з посилання work.ua/jobs/<ID>/ — потрібен для синхронізації відгуків.",
     )
     workua_synced_at = models.DateTimeField("остання синхронізація з Work.ua", null=True, blank=True)
+    workua_active = models.BooleanField("активна на Work.ua", null=True, blank=True)
+    workua_expires_on = models.DateField("активна на Work.ua до", null=True, blank=True)
+    workua_street_address = models.CharField("адреса з вакансії Work.ua", max_length=255, blank=True)
+    workua_last_response_id = models.BigIntegerField(
+        "останній отриманий відгук Work.ua", null=True, blank=True, editable=False
+    )
     opened_on = models.DateField(
         "дата публікації",
         default=timezone.localdate,
@@ -87,7 +99,7 @@ class Vacancy(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.title} — {self.company}"
+        return f"{self.title} — {self.company or 'підприємство не призначено'}"
 
     def get_absolute_url(self) -> str:
         return reverse("recruiting:vacancy_detail", args=[self.pk])
@@ -137,6 +149,7 @@ class Candidate(models.Model):
     city = models.CharField("місто", max_length=100, blank=True)
     source = models.CharField("джерело", max_length=20, choices=Source, default=Source.MANUAL)
     workua_resume_id = models.CharField("ID резюме на Work.ua", max_length=32, blank=True)
+    workua_candidate_id = models.CharField("ID кандидата на Work.ua", max_length=32, blank=True)
     resume_url = models.URLField("посилання на резюме", blank=True)
     resume_text = models.TextField("текст резюме", blank=True)
     notes = models.TextField("нотатки", blank=True)
@@ -152,7 +165,12 @@ class Candidate(models.Model):
                 fields=["workua_resume_id"],
                 condition=~models.Q(workua_resume_id=""),
                 name="unique_candidate_workua_resume_id",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["workua_candidate_id"],
+                condition=~models.Q(workua_candidate_id=""),
+                name="unique_candidate_workua_candidate_id",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -287,6 +305,14 @@ class Application(models.Model):
     note = models.TextField(
         "примітка", blank=True, help_text="Коротко про кандидата: досвід, що уточнити (як у колонці «Примітка»)."
     )
+    class WorkUaFrom(models.TextChoices):
+        SEND = "send", "Відгук з резюме"
+        PHONECALL = "phonecall", "Подзвонив за номером з вакансії"
+        MESSENGER = "messenger", "Написав у месенджер"
+        SAVED = "saved", "Збережений у кабінеті Work.ua"
+
+    workua_from = models.CharField("як прийшов з Work.ua", max_length=12, choices=WorkUaFrom, blank=True)
+    workua_has_file = models.BooleanField("є файл резюме на Work.ua", default=False)
     cover_letter = models.TextField("супровідний лист", blank=True)
     interview_at = models.DateTimeField("дата співбесіди", null=True, blank=True)
     applied_at = models.DateTimeField("дата відгуку / додавання", null=True, blank=True)
@@ -345,3 +371,27 @@ class ApplicationEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} ({self.created_at:%d.%m.%Y %H:%M})"
+
+
+class WorkUaSyncState(models.Model):
+    """Стан синхронізації з Work.ua (один запис)."""
+
+    last_run_at = models.DateTimeField("останній запуск", null=True, blank=True)
+    last_success_at = models.DateTimeField("остання успішна синхронізація", null=True, blank=True)
+    last_summary = models.TextField("підсумок", blank=True)
+    last_error = models.TextField("остання помилка", blank=True)
+    # Відбиток логіна/пароля, з якими Work.ua відповів 401. Поки дані ті самі, автоматична
+    # синхронізація не повторює спроби: після 10 невдалих входів Work.ua блокує доступ на добу.
+    auth_failed_fingerprint = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        verbose_name = "стан синхронізації з Work.ua"
+        verbose_name_plural = "стан синхронізації з Work.ua"
+
+    def __str__(self) -> str:
+        return "Синхронізація з Work.ua"
+
+    @classmethod
+    def get(cls) -> "WorkUaSyncState":
+        state, _ = cls.objects.get_or_create(pk=1)
+        return state

@@ -41,7 +41,12 @@
       {% for c in data.missing_location %}<a href="{% url 'recruiting:company_edit' c.pk %}?next={{ request.get_full_path|urlencode }}">{{ c.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
       — клацніть, щоб вказати розташування.</p>
   {% endif %}
-  {% if not data.companies and not data.missing_location %}
+  {% if data.unassigned %}
+    <p class="small missing-loc">Вакансії без підприємства (з Work.ua):
+      {% for v in data.unassigned %}<a href="{% url 'recruiting:vacancy_edit' v.pk %}">{{ v.title }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+      — призначте підприємство, щоб вони з'явилися на карті.</p>
+  {% endif %}
+  {% if not data.companies and not data.missing_location and not data.unassigned %}
     <p class="muted small">Немає {% if include_paused %}відкритих чи призупинених{% else %}відкритих{% endif %} вакансій.</p>
   {% endif %}
 </section>
@@ -69,7 +74,7 @@
       <tr>
         <td data-label="Вакансія"><a href="{{ row.vacancy.get_absolute_url }}"><strong>{{ row.vacancy.title }}</strong></a>
           {% if row.vacancy.status != 'open' %}<span class="badge">{{ row.vacancy.get_status_display }}</span>{% endif %}
-          <div class="muted small">{{ row.vacancy.company }}</div></td>
+          <div class="muted small">{% if row.vacancy.company %}{{ row.vacancy.company }}{% else %}<span class="warn-text">підприємство не призначено</span>{% endif %}</div></td>
         <td class="num" data-label="Активна">{{ row.vacancy.days_active|days }}</td>
         <td class="num" data-label="Кандидатів">{{ row.total }}</td>
         <td class="pipe-col" data-label="Воронка">

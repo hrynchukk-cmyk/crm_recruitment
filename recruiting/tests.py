@@ -1,16 +1,31 @@
-from datetime import datetime, timezone as dt_timezone
+from datetime import date, datetime, timezone as dt_timezone
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .integrations.workua import DisabledClient, WorkUaCandidate, WorkUaNotConfigured, sync_vacancy
+from .integrations import workua
+from .integrations.workua import (
+    DisabledClient,
+    WorkUaApiClient,
+    WorkUaAuthError,
+    WorkUaCandidate,
+    WorkUaJob,
+    WorkUaNotConfigured,
+    WorkUaRateLimited,
+    auth_blocked_for_auto_sync,
+    import_jobs,
+    sync_all,
+    sync_vacancy,
+)
 from .models import (
     Application,
     ApplicationEvent,
     Candidate,
     Company,
     Vacancy,
+    WorkUaSyncState,
     normalize_phone,
     parse_workua_link,
     parse_workua_resume_id,
@@ -20,17 +35,35 @@ from .services import attach_candidate, change_stage
 
 
 class FakeClient:
-    def __init__(self, responses, recommended=()):
-        self.responses = responses
-        self.recommended = recommended
-        self.calls = []
+    """Підміна Work.ua на рівні клієнта (для тестів логіки синхронізації)."""
 
-    def list_responses(self, job_id, since=None):
-        self.calls.append((job_id, since))
-        return list(self.responses)
+    def __init__(self, responses=(), saved=(), jobs=(), towns=None):
+        self.responses = list(responses)
+        self.saved = list(saved)  # [(елемент списку /candidates, WorkUaCandidate з деталями)]
+        self.jobs = list(jobs)
+        self._towns = towns or {}
+        self.response_calls = []
+        self.detail_calls = []
 
-    def list_recommended(self, job_id):
-        return list(self.recommended)
+    def my_jobs(self):
+        return list(self.jobs)
+
+    def towns(self):
+        return self._towns
+
+    def job_responses(self, job_id, after_id=None):
+        self.response_calls.append((job_id, after_id))
+        return [r for r in self.responses if not after_id or int(r.external_id) > after_id]
+
+    def saved_candidates(self, job_id):
+        return [item for item, _ in self.saved]
+
+    def saved_candidate(self, item):
+        self.detail_calls.append(str(item["candidate_id"]))
+        return {str(i["candidate_id"]): c for i, c in self.saved}[str(item["candidate_id"])]
+
+    def response_file_url(self, job_id, response_id):
+        return f"https://files.example/{job_id}/{response_id}?signature=x"
 
 
 class BaseTestCase(TestCase):
@@ -92,74 +125,288 @@ class StageTests(BaseTestCase):
             change_stage(application, "bogus")
 
 
-class WorkUaSyncTests(BaseTestCase):
-    def response(self, rid, name, phone="", resume_id="", channel=Application.Channel.RESPONSE):
-        return WorkUaCandidate(
-            external_id=rid,
-            full_name=name,
-            channel=channel,
-            phone=phone,
-            resume_id=resume_id,
-            applied_at=datetime(2026, 11, 20, 10, 0, tzinfo=dt_timezone.utc),
-        )
+def resp(rid, name, phone="", from_type="send", candidate_id="", age=None, has_file=False):
+    return WorkUaCandidate(
+        external_id=str(rid), full_name=name, from_type=from_type, phone=phone, age=age,
+        workua_candidate_id=str(candidate_id), has_file=has_file, resume_text="Досвід 2 роки",
+        applied_at=datetime(2026, 11, 20, 10, 0, tzinfo=dt_timezone.utc),
+    )
 
-    def test_responses_and_recommended_go_to_separate_sections(self):
+
+def saved(candidate_id, name, phone=""):
+    item = {"candidate_id": candidate_id, "info": {"first_name": name}, "are_contacts_open": True}
+    detail = WorkUaCandidate(
+        external_id=f"cand-{candidate_id}", full_name=name, channel=Application.Channel.SOURCED,
+        from_type=Application.WorkUaFrom.SAVED, phone=phone, workua_candidate_id=str(candidate_id),
+        resume_id=f"9{candidate_id}", resume_url=f"https://www.work.ua/resumes/9{candidate_id}/",
+    )
+    return item, detail
+
+
+class WorkUaSyncTests(BaseTestCase):
+    def test_all_response_types_go_to_responses(self):
+        client = FakeClient([
+            resp(101, "Олена", "0501112233", "send", 1, age=24, has_file=True),
+            resp(102, "Петро", "0632223344", "phonecall", 2),
+            resp(103, "Ігор", "0673334455", "messenger", 3),
+        ])
+        result = sync_vacancy(self.vacancy, client=client)
+        self.assertEqual(result.created_by_channel, {"response": 3})
+        apps = {a.candidate.full_name: a for a in self.vacancy.applications.select_related("candidate")}
+        self.assertEqual({n: a.workua_from for n, a in apps.items()},
+                         {"Олена": "send", "Петро": "phonecall", "Ігор": "messenger"})
+        self.assertTrue(all(a.channel == "response" and a.stage == "new" for a in apps.values()))
+        self.assertTrue(apps["Олена"].workua_has_file)
+        self.assertEqual(apps["Олена"].candidate.age, 24)
+        self.assertEqual(apps["Олена"].candidate.resume_text, "Досвід 2 роки")
+
+    def test_only_new_responses_are_requested_next_time(self):
+        client = FakeClient([resp(101, "Олена", "0501112233"), resp(105, "Петро", "0632223344")])
+        sync_vacancy(self.vacancy, client=client)
+        self.vacancy.refresh_from_db()
+        self.assertEqual(self.vacancy.workua_last_response_id, 105)
+        client.responses.append(resp(110, "Ігор", "0673334455"))
+        result = sync_vacancy(self.vacancy, client=client)
+        self.assertEqual(client.response_calls[0][1], None)
+        self.assertEqual(client.response_calls[1][1], 105)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(self.vacancy.applications.count(), 3)
+
+    def test_saved_candidates_go_to_sourced_without_duplicates(self):
         client = FakeClient(
-            [self.response("r1", "Олена", "0501112233")],
-            [self.response("rec1", "Марко", "0632223344", channel=Application.Channel.RECOMMENDED)],
+            responses=[resp(101, "Олена", "0501112233", candidate_id=11)],
+            saved=[saved(11, "Олена"), saved(12, "Марко", "0632223344")],
         )
         result = sync_vacancy(self.vacancy, client=client)
-        self.assertEqual(result.created_by_channel, {"response": 1, "recommended": 1})
-        channels = dict(self.vacancy.applications.values_list("candidate__full_name", "channel"))
-        self.assertEqual(channels, {"Олена": "response", "Марко": "recommended"})
+        self.assertEqual(result.created_by_channel, {"response": 1, "sourced": 1})
+        self.assertEqual(client.detail_calls, ["12"])  # Олена вже є з відгуку — деталі не запитуємо
+        marko = self.vacancy.applications.get(candidate__full_name="Марко")
+        self.assertEqual((marko.channel, marko.workua_from), ("sourced", "saved"))
+        self.assertEqual(marko.candidate.resume_url, "https://www.work.ua/resumes/912/")
+        # Повтор — нічого нового.
+        again = sync_vacancy(self.vacancy, client=client)
+        self.assertEqual(again.created, 0)
+        self.assertEqual(Candidate.objects.count(), 2)
 
-    def test_recommended_candidate_who_responds_moves_to_responses(self):
-        rec = self.response("rec1", "Марко", "0632223344", "res9", channel=Application.Channel.RECOMMENDED)
-        sync_vacancy(self.vacancy, client=FakeClient([], [rec]))
+    def test_saved_candidate_who_responds_moves_to_responses_keeping_stage(self):
+        client = FakeClient(saved=[saved(12, "Марко", "0632223344")])
+        sync_vacancy(self.vacancy, client=client)
         application = self.vacancy.applications.get()
         change_stage(application, Application.Stage.THINKING)
-
-        sync_vacancy(self.vacancy, client=FakeClient([self.response("r5", "Марко", "063 222 33 44")], [rec]))
+        client.responses = [resp(130, "Марко", "063 222 33 44", "send", 12)]
+        sync_vacancy(self.vacancy, client=client)
         application.refresh_from_db()
         self.assertEqual(self.vacancy.applications.count(), 1)
-        self.assertEqual(application.channel, Application.Channel.RESPONSE)
-        self.assertEqual(application.stage, Application.Stage.THINKING)  # статус не скидається
+        self.assertEqual((application.channel, application.stage, application.workua_from), ("response", "thinking", "send"))
 
-    def test_same_recommendation_for_two_vacancies(self):
+    def test_same_person_on_two_vacancies_is_one_candidate(self):
         other = Vacancy.objects.create(company=self.company, title="Комірник", workua_job_id="999")
-        rec = self.response("res1", "Марко", "0632223344", "res1", channel=Application.Channel.RECOMMENDED)
-        sync_vacancy(self.vacancy, client=FakeClient([], [rec]))
-        sync_vacancy(other, client=FakeClient([], [rec]))
+        sync_vacancy(self.vacancy, client=FakeClient([resp(101, "Олена", "0501112233", candidate_id=11)]))
+        sync_vacancy(other, client=FakeClient([resp(201, "Олена Коваль", "050 111 22 33", candidate_id=11)]))
         self.assertEqual(Candidate.objects.count(), 1)
         self.assertEqual(Application.objects.count(), 2)
 
-    def test_creates_candidates_and_is_idempotent(self):
-        client = FakeClient([self.response("r1", "Олена", "0501112233", "res1"), self.response("r2", "Петро")])
-        result = sync_vacancy(self.vacancy, client=client)
-        self.assertEqual((result.total, result.created), (2, 2))
-        self.assertEqual(self.vacancy.applications.count(), 2)
-        self.assertTrue(all(a.source == Candidate.Source.WORKUA for a in self.vacancy.applications.all()))
-
-        result = sync_vacancy(self.vacancy, client=client)
-        self.assertEqual((result.created, result.already_present), (0, 2))
-        self.assertEqual(Candidate.objects.count(), 2)
-        self.vacancy.refresh_from_db()
-        self.assertIsNotNone(self.vacancy.workua_synced_at)
-        # Перша синхронізація — без обмеження, друга — лише нові відгуки після першої.
-        self.assertIsNone(client.calls[0][1])
-        self.assertIsNotNone(client.calls[1][1])
-
-    def test_matches_existing_candidate_by_phone(self):
-        existing = Candidate.objects.create(full_name="Олена Коваль", phone="+380501112233")
-        sync_vacancy(self.vacancy, client=FakeClient([self.response("r1", "Олена", "050 111 22 33", "res1")]))
-        self.assertEqual(Candidate.objects.count(), 1)
+    def test_manual_edits_are_not_overwritten(self):
+        existing = Candidate.objects.create(full_name="Олена Коваль (вручну)", phone="+380501112233")
+        sync_vacancy(self.vacancy, client=FakeClient([resp(101, "Олена", "050 111 22 33", candidate_id=11, age=30)]))
         existing.refresh_from_db()
-        self.assertEqual(existing.full_name, "Олена Коваль")  # не перезаписуємо ручні правки
-        self.assertEqual(existing.workua_resume_id, "res1")
+        self.assertEqual(existing.full_name, "Олена Коваль (вручну)")
+        self.assertEqual((existing.age, existing.workua_candidate_id), (30, "11"))
+
+    def test_import_jobs(self):
+        get_user_model().objects.create_user("manager", email="manager@agency.example")
+        jobs = [
+            WorkUaJob(id="7000001", name="Комірник", active=True, published_on=date(2026, 11, 1), region_id=4,
+                      street_address="вул. Городоцька, 172", description="Опис", salary_text="від 24 000 грн",
+                      contact_email="manager@agency.example"),
+            WorkUaJob(id="7000002", name="Стара вакансія", active=False),
+            WorkUaJob(id="1234567", name="Оператор лінії", active=False, expires_on=date(2026, 12, 1)),
+        ]
+        from .integrations.workua import SyncResult
+        result = SyncResult()
+        import_jobs(FakeClient(jobs=jobs, towns={4: "Львів"}), result)
+        self.assertEqual((result.jobs_created, result.jobs_updated), (1, 1))
+        new = Vacancy.objects.get(workua_job_id="7000001")
+        self.assertIsNone(new.company)
+        self.assertEqual((new.city, new.opened_on, new.salary, new.status), ("Львів", date(2026, 11, 1), "від 24 000 грн", "open"))
+        self.assertEqual(new.recruiter.username, "manager")
+        self.assertEqual(new.workua_street_address, "вул. Городоцька, 172")
+        self.assertFalse(Vacancy.objects.filter(workua_job_id="7000002").exists())  # неактивні нові не імпортуємо
+        self.vacancy.refresh_from_db()
+        self.assertIs(self.vacancy.workua_active, False)
+        self.assertEqual(self.vacancy.company, self.company)  # наявну вакансію не чіпаємо
+
+    def test_sync_all_records_state_and_auth_failure_stops_auto_sync(self):
+        client = FakeClient([resp(101, "Олена", "0501112233")])
+        result = sync_all(client=client)
+        state = WorkUaSyncState.get()
+        self.assertIsNotNone(state.last_success_at)
+        self.assertIn("нових кандидатів: 1", state.last_summary)
+        self.assertEqual(result.created, 1)
+
+        class BadAuth(FakeClient):
+            def my_jobs(self):
+                raise WorkUaAuthError("401")
+
+        with self.assertRaises(WorkUaAuthError):
+            sync_all(client=BadAuth())
+        self.assertTrue(auth_blocked_for_auto_sync())
+        sync_all(client=client)  # вдалий вхід знімає блок
+        self.assertFalse(auth_blocked_for_auto_sync())
 
     def test_disabled_client_raises(self):
         with self.assertRaises(WorkUaNotConfigured):
             sync_vacancy(self.vacancy, client=DisabledClient())
+
+
+# ----------------------------------------------------------------- HTTP-клієнт за документацією Work.ua
+
+
+class FakeHttpResponse:
+    def __init__(self, status=200, data=None, headers=None):
+        self.status_code = status
+        self._data = data
+        self.headers = headers or {}
+        self.text = "" if data is None else str(data)
+
+    def json(self):
+        if self._data is None:
+            raise ValueError("no json")
+        return self._data
+
+
+class FakeSession:
+    def __init__(self, handler):
+        self.handler = handler
+        self.calls = []
+
+    def request(self, method, url, params=None, auth=None, headers=None, timeout=None, allow_redirects=True):
+        self.calls.append({"method": method, "url": url, "params": params or {}, "auth": auth, "headers": headers})
+        return self.handler(method, url.replace("https://api.work.ua", ""), params or {})
+
+
+def api(handler):
+    session = FakeSession(handler)
+    return WorkUaApiClient("hr@agency.example", "secret", session=session, pause=0), session
+
+
+class WorkUaApiClientTests(TestCase):
+    def test_headers_auth_and_jobs_paging(self):
+        def handler(method, path, params):
+            self.assertEqual(path, "/jobs/my")
+            page = params["page"]
+            item = {"id": 100 + page, "name": f"Вакансія {page}", "active": 1, "date": "2026-11-01T10:00:00+02:00",
+                    "date_expire": "2026-12-01T10:00:00+02:00", "region": 4, "streetAddress": "вул. Зелена, 1",
+                    "description": "<p>Обов'язки:</p><ul><li>приймання товару</li></ul>",
+                    "salary": {"value": 24000, "value_max": 30000, "comment": ""}, "contact": {"email": "m@a.example"}}
+            return FakeHttpResponse(200, {"status": "ok", "items": [item], "pagination": {"last_page": 2}})
+
+        client, session = api(handler)
+        jobs = client.my_jobs()
+        self.assertEqual([j.id for j in jobs], ["101", "102"])
+        self.assertEqual(jobs[0].salary_text, "24 000 – 30 000 грн")
+        self.assertEqual(jobs[0].description, "Обов'язки:\n• приймання товару")
+        self.assertEqual(jobs[0].published_on, date(2026, 11, 1))
+        first = session.calls[0]
+        self.assertEqual(first["auth"], ("hr@agency.example", "secret"))
+        self.assertEqual(first["headers"]["X-Locale"], "uk_UA")
+        self.assertIn("hr@agency.example", first["headers"]["User-Agent"])
+        self.assertEqual((first["params"]["limit"], first["params"]["full"], first["params"]["page"]), (100, 1, 1))
+
+    def test_responses_walk_all_pages_and_types(self):
+        all_ids = list(range(1, 121))  # 120 відгуків на вакансію
+
+        def handler(method, path, params):
+            self.assertEqual(path, "/jobs/555/responses")
+            self.assertEqual(params["from_type[]"], ["send", "phonecall", "messenger"])
+            ids = [i for i in all_ids if i > params.get("last_id", 0) and i < params.get("before_id", 10**9)]
+            ids = sorted(ids, reverse=True)[: params["limit"]]  # від новіших до старіших, як у Work.ua
+            if not ids:
+                return FakeHttpResponse(404, {"status": "error"})
+            items = [{"id": i, "job_id": 555, "candidate_id": 9000 + i, "date": "2026-11-20T10:00:00+02:00",
+                      "fio": f"Кандидат {i}", "from_type": "phonecall" if i % 2 else "send",
+                      "birth_date": "2000-01-15", "phone": "093 181-88-75", "email": "", "type": "resume",
+                      "with_file": 1 if i == 120 else 0, "text": "Резюме<br />рядок 2", "cover": ""} for i in ids]
+            return FakeHttpResponse(200, {"status": "ok", "items": items})
+
+        client, session = api(handler)
+        responses = client.job_responses("555")
+        self.assertEqual([int(r.external_id) for r in responses], all_ids)
+        self.assertEqual(len(session.calls), 3)
+        last = responses[-1]
+        self.assertEqual((last.from_type, last.has_file, last.workua_candidate_id), ("send", True, "9120"))
+        self.assertEqual(last.resume_text, "Резюме\nрядок 2")
+        self.assertEqual(responses[0].age, workua.age_from_birth_date(date(2000, 1, 15)))
+        newer = client.job_responses("555", after_id=100)
+        self.assertEqual([int(r.external_id) for r in newer], list(range(101, 121)))
+
+    def test_saved_candidate_details(self):
+        def handler(method, path, params):
+            if path == "/candidates":
+                return FakeHttpResponse(200, {"status": "ok", "items": [
+                    {"candidate_id": 264227116, "info": {"first_name": "Андрій", "last_name": "Миколенко"}, "are_contacts_open": True},
+                ], "pagination": {"current_page": 1, "last_page": 1}})
+            self.assertEqual(path, "/candidates/264227116")
+            return FakeHttpResponse(200, {"status": "ok", "candidate": {
+                "id": 264227116, "first_name": "Андрій", "last_name": "Миколенко", "middle_name": None, "age": "23 роки",
+                "email": "mikola@gmail.com", "phone": "+380966760487"}, "are_contacts_open": True,
+                "jobs": [{"id": "7000008"}], "resumes": [{"id": "15147703", "name": "Комірник", "type": "file"}]})
+
+        client, _ = api(handler)
+        [item] = client.saved_candidates("7000008")
+        candidate = client.saved_candidate(item)
+        self.assertEqual((candidate.full_name, candidate.age, candidate.phone), ("Андрій Миколенко", 23, "+380966760487"))
+        self.assertEqual((candidate.channel, candidate.from_type, candidate.external_id), ("sourced", "saved", "cand-264227116"))
+        self.assertEqual(candidate.resume_url, "https://www.work.ua/resumes/15147703/")
+
+    def test_error_codes(self):
+        for status, error in ((401, WorkUaAuthError), (429, WorkUaRateLimited)):
+            client, _ = api(lambda m, p, q, s=status: FakeHttpResponse(s, {}))
+            with self.assertRaises(error):
+                client.my_jobs()
+        client, _ = api(lambda m, p, q: FakeHttpResponse(404, {"status": "error"}))
+        self.assertEqual(client.my_jobs(), [])
+        self.assertEqual(client.job_responses("1"), [])
+
+    def test_response_file_redirect(self):
+        client, session = api(lambda m, p, q: FakeHttpResponse(302, None, {"Location": "https://s3.example/cv.pdf?sig=1"}))
+        self.assertEqual(client.response_file_url("12345", "54321"), "https://s3.example/cv.pdf?sig=1")
+        self.assertTrue(session.calls[0]["url"].endswith("/response_files/12345/54321/"))
+
+    def test_requires_credentials(self):
+        with self.assertRaises(WorkUaNotConfigured):
+            WorkUaApiClient("", "")
+
+
+class WorkUaViewsTests(BaseTestCase):
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    @override_settings(WORKUA={"BACKEND": "api", "LOGIN": "hr@agency.example", "PASSWORD": "x", "SYNC_MINUTES": 15})
+    def test_sync_button_and_status(self):
+        fake = FakeClient([resp(101, "Олена", "0501112233")])
+        with mock.patch.object(workua, "get_client", return_value=fake):
+            response = self.client.post(reverse("recruiting:workua_sync_all"), follow=True)
+        self.assertContains(response, "нових кандидатів: 1")
+        self.assertContains(response, "Work.ua: синхронізовано")
+        self.assertContains(response, "Синхронізувати з Work.ua")
+
+    def test_file_download_redirects_to_signed_url(self):
+        sync_vacancy(self.vacancy, client=FakeClient([resp(101, "Олена", "0501112233", has_file=True)]))
+        application = self.vacancy.applications.get()
+        with mock.patch("recruiting.views.get_client", return_value=FakeClient()):
+            response = self.client.get(reverse("recruiting:application_workua_file", args=[application.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "https://files.example/1234567/101?signature=x")
+        page = self.client.get(application.get_absolute_url())
+        self.assertContains(page, "Завантажити з Work.ua")
+
+    def test_unassigned_vacancy_everywhere(self):
+        Vacancy.objects.create(company=None, title="З Work.ua без підприємства", workua_job_id="7000001")
+        self.assertContains(self.client.get(reverse("recruiting:vacancy_list")), "призначити підприємство")
+        self.assertContains(self.client.get(reverse("recruiting:dashboard")), "Вакансії без підприємства")
+        vacancy = Vacancy.objects.get(workua_job_id="7000001")
+        self.assertContains(self.client.get(vacancy.get_absolute_url()), "призначити підприємство")
 
 
 class ViewTests(BaseTestCase):
@@ -275,7 +522,7 @@ class ViewTests(BaseTestCase):
         response = self.client.post(
             reverse("recruiting:vacancy_sync_workua", args=[self.vacancy.pk]), follow=True
         )
-        self.assertContains(response, "ще не підключено")
+        self.assertContains(response, "Інтеграцію з Work.ua не ввімкнено")
 
 
 SHEET_CSV = """Лінк,Ім’я,Вік,Контакт,Район,Статус,Примітка

@@ -6,18 +6,27 @@
     <a class="muted small" href="{% url 'recruiting:vacancy_list' %}">← Вакансії</a>
     <h1>{{ vacancy.title }}</h1>
     <div class="muted">
-      {{ vacancy.company }} · {{ vacancy.city }}{% if vacancy.salary %} · {{ vacancy.salary }}{% endif %}
+      {% if vacancy.company %}{{ vacancy.company }}{% else %}<a class="warn-text" href="{% url 'recruiting:vacancy_edit' vacancy.pk %}">призначити підприємство</a>{% endif %}
+      · {{ vacancy.city }}{% if vacancy.salary %} · {{ vacancy.salary }}{% endif %}
       · потрібно: {{ vacancy.headcount }} · {{ vacancy.get_status_display }}
       {% if vacancy.workua_url %} · <a href="{{ vacancy.workua_url }}" target="_blank" rel="noopener">на Work.ua ↗</a>{% endif %}
     </div>
+    {% if vacancy.workua_job_id %}
+      <div class="muted small workua-line">
+        {% if vacancy.workua_active is True %}Оголошення на Work.ua активне{% if vacancy.workua_expires_on %} до {{ vacancy.workua_expires_on|date:"d.m.Y" }}{% endif %}.
+        {% elif vacancy.workua_active is False %}Оголошення на Work.ua неактивне.{% endif %}
+        {% if vacancy.workua_synced_at %}Відгуки оновлено {{ vacancy.workua_synced_at|date:"d.m.Y H:i" }}.{% endif %}
+        {% if vacancy.workua_street_address %}Адреса у вакансії: {{ vacancy.workua_street_address }}.{% endif %}
+      </div>
+    {% endif %}
   </div>
   <div class="actions">
     <a class="btn" href="{% url 'recruiting:vacancy_edit' vacancy.pk %}">Редагувати</a>
     <a class="btn" href="{% url 'recruiting:vacancy_import' vacancy.pk %}">Імпорт з таблиці</a>
     {% if vacancy.workua_job_id %}
-      <form method="post" action="{% url 'recruiting:vacancy_sync_workua' vacancy.pk %}" class="inline">
+      <form method="post" action="{% url 'recruiting:vacancy_sync_workua' vacancy.pk %}" class="inline" data-busy="Оновлюю…">
         {% csrf_token %}
-        <button class="btn" title="Підтягнути відгуки та рекомендованих{% if vacancy.workua_synced_at %}. Остання синхронізація: {{ vacancy.workua_synced_at|date:'d.m.Y H:i' }}{% endif %}">⟳ Оновити з Work.ua</button>
+        <button class="btn" title="Нові відгуки (з резюме, дзвінки, месенджер) і кандидати, збережені на вакансію в кабінеті Work.ua">⟳ Оновити з Work.ua</button>
       </form>
     {% endif %}
     <a class="btn primary" href="{% url 'recruiting:vacancy_add_candidate' vacancy.pk %}{% if channel != 'all' %}?channel={{ channel }}{% endif %}">+ Кандидат</a>
@@ -67,6 +76,7 @@
       <td data-label="Ім'я">
         <a href="{{ a.get_absolute_url }}"><strong>{{ a.candidate.full_name }}</strong></a>
         {% if a.candidate.resume_url %}<a class="small" href="{{ a.candidate.resume_url }}" target="_blank" rel="noopener" title="Відкрити на Work.ua">Work.ua ↗</a>{% endif %}
+        {% if a.workua_from and a.workua_from != 'send' %}<div class="small muted">{% if a.workua_from == 'phonecall' %}📞 дзвінок{% elif a.workua_from == 'messenger' %}💬 месенджер{% elif a.workua_from == 'saved' %}⭐ з кабінету Work.ua{% endif %}</div>{% endif %}
         {% if a.interview_at and a.stage == 'interview' %}<div class="small">🗓 Співбесіда {{ a.interview_at|date:"d.m H:i" }}</div>{% endif %}
       </td>
       <td class="num" data-label="Вік">{{ a.candidate.age|default:"—" }}</td>

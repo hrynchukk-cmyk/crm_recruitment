@@ -79,6 +79,14 @@
           .catch(function () { field.classList.add("failed"); });
       });
     });
+    // Довгі дії (синхронізація з Work.ua): показати, що йде робота, і не дати натиснути вдруге.
+    document.querySelectorAll("form[data-busy]").forEach(function (form) {
+      form.addEventListener("submit", function () {
+        var button = form.querySelector("button");
+        if (button) { button.textContent = form.getAttribute("data-busy"); }
+        form.classList.add("busy");
+      });
+    });
     // Повідомлення «збережено» тихо зникають через кілька секунд (помилки — лишаються).
     setTimeout(function () {
       document.querySelectorAll(".messages .msg-success, .messages .msg-info").forEach(function (el) {

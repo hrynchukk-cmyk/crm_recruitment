@@ -29,5 +29,18 @@ services:
       db:
         condition: service_healthy
 
+  # Фонова синхронізація з Work.ua (вакансії, нові відгуки, збережені кандидати) кожні
+  # WORKUA_SYNC_MINUTES хвилин. Якщо інтеграцію не ввімкнено в .env — просто чекає.
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: ["python", "manage.py", "sync_workua", "--loop"]
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+
 volumes:
   pgdata:

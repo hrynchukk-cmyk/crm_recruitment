@@ -3,15 +3,38 @@
 {% block content %}
 <div class="page-head">
   <div><h1>Вакансії</h1><p class="page-sub">Посади, на які шукаємо людей, і кандидати за розділами.</p></div>
-  <a class="btn primary" href="{% url 'recruiting:vacancy_create' %}">+ Нова вакансія</a>
+  <div class="actions">
+    {% if workua_enabled %}
+      <form method="post" action="{% url 'recruiting:workua_sync_all' %}" class="inline" data-busy="Синхронізую…">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn" title="Вакансії, нові відгуки (з резюме, дзвінки, месенджер) і кандидати, збережені в кабінеті Work.ua">⟳ Синхронізувати з Work.ua</button>
+      </form>
+    {% endif %}
+    <a class="btn primary" href="{% url 'recruiting:vacancy_create' %}">+ Нова вакансія</a>
+  </div>
 </div>
+
+{% if workua_enabled %}
+  {% include "recruiting/_workua_status.html" %}
+{% endif %}
+
+{% if unassigned_count %}
+  <div class="notice">
+    <strong>{{ unassigned_count }}</strong> {% if unassigned_count == 1 %}вакансія з Work.ua не має{% else %}вакансій з Work.ua не мають{% endif %} підприємства.
+    <a href="?status=all&company=none">Показати</a> й призначте підприємство — тоді вони з'являться на карті й у звітах.
+  </div>
+{% endif %}
 
 <div class="filters">
   {% for value, label in statuses %}
-    <a class="chip {% if status == value %}active{% endif %}" href="?status={{ value }}">{{ label }}</a>
+    <a class="chip {% if status == value and not unassigned_only %}active{% endif %}" href="?status={{ value }}">{{ label }}</a>
   {% endfor %}
-  <a class="chip {% if status == 'all' %}active{% endif %}" href="?status=all">Усі</a>
+  <a class="chip {% if status == 'all' and not unassigned_only %}active{% endif %}" href="?status=all">Усі</a>
   <a class="chip {% if request.GET.mine %}active{% endif %}" href="?status={{ status }}{% if not request.GET.mine %}&mine=1{% endif %}">Лише мої</a>
+  {% if unassigned_count or unassigned_only %}
+    <a class="chip {% if unassigned_only %}active{% endif %}" href="?status=all&company=none">Без підприємства <span class="count">{{ unassigned_count }}</span></a>
+  {% endif %}
 </div>
 
 <table class="table">
@@ -30,7 +53,10 @@
     <tr{% if request.GET.saved == v.pk|stringformat:"d" %} class="just-saved"{% endif %}>
       <td><a href="{{ v.get_absolute_url }}"><strong>{{ v.title }}</strong></a>
         {% if v.status != 'open' %}<span class="badge">{{ v.get_status_display }}</span>{% endif %}
-        <div class="muted small">{{ v.company }} · {{ v.city }}{% if v.salary %} · {{ v.salary }}{% endif %}
+        {% if v.workua_job_id and v.workua_active is False %}<span class="badge" title="Оголошення на Work.ua неактивне">не на Work.ua</span>{% endif %}
+        <div class="muted small">
+          {% if v.company %}{{ v.company }}{% else %}<a class="warn-text" href="{% url 'recruiting:vacancy_edit' v.pk %}">призначити підприємство</a>{% endif %}
+          · {{ v.city }}{% if v.salary %} · {{ v.salary }}{% endif %}
           · {% if v.recruiter %}{{ v.recruiter.get_full_name|default:v.recruiter.username }}{% else %}без рекрутера{% endif %}</div></td>
       <td class="num"><a href="{{ v.get_absolute_url }}?channel=response">{{ v.responses }}</a>{% if v.responses_new %} <span class="badge stage-new" title="нові">+{{ v.responses_new }}</span>{% endif %}</td>
       <td class="num"><a href="{{ v.get_absolute_url }}?channel=recommended">{{ v.recommended }}</a>{% if v.recommended_new %} <span class="badge stage-new" title="нові">+{{ v.recommended_new }}</span>{% endif %}</td>
