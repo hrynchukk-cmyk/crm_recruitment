@@ -418,3 +418,13 @@ h1 .badge { font-size: .8rem; position: relative; top: -3px; margin-left: 4px; }
 .warn-text { color: var(--warning); font-weight: 560; }
 .workua-line { margin-top: 4px; }
 form[data-busy].busy button { opacity: .65; pointer-events: none; }
+.map.readonly { cursor: default; }
+.side-user-name small { display: block; color: var(--muted); font-size: .76rem; font-weight: 500; }
+.role-admin { background-color: var(--primary-50); color: var(--primary); }
+.role-recruiter { background-color: #e1f5e8; color: #1a7240; }
+.roles-help { display: grid; gap: 6px; margin: -6px 0 16px; color: var(--text-2); font-size: .9rem; }
+.form #id_role { display: grid; gap: 6px; }
+.form #id_role label { font-weight: 500; display: flex; align-items: center; gap: 9px; margin: 0; color: var(--text);
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.form #id_role label:has(input:checked) { border-color: var(--primary); background: var(--primary-50); }
+.form input[type=checkbox] { width: auto; margin-right: 8px; }

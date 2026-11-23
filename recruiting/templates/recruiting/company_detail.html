@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ company.name }} — CRM рекрутингу{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'vendor/leaflet/leaflet.css' %}">{% endblock %}
+{% block content %}
+<div class="card narrow-xl">
+  <a class="muted small" href="{% url 'recruiting:company_list' %}">← Підприємства</a>
+  <h1>{{ company.name }}</h1>
+  <p class="muted small">Лише перегляд. Змінити дані підприємства може адміністратор.</p>
+
+  <dl class="props">
+    <dt>Адреса</dt><dd>{{ company.address|default:"—" }}</dd>
+    <dt>Контактна особа</dt><dd>{{ company.contact_person|default:"—" }}</dd>
+    <dt>Телефон</dt><dd>{% if company.phone %}<a href="tel:{{ company.phone }}">{{ company.phone }}</a>{% else %}—{% endif %}</dd>
+    <dt>Email</dt><dd>{% if company.email %}<a href="mailto:{{ company.email }}">{{ company.email }}</a>{% else %}—{% endif %}</dd>
+  </dl>
+  {% if company.notes %}<h3>Нотатки</h3><p class="pre">{{ company.notes }}</p>{% endif %}
+
+  <h3>На карті</h3>
+  {% if company.has_location %}
+    <div id="company-map" class="map map-picker readonly" data-readonly data-lat="{{ company.latitude|stringformat:'s' }}" data-lng="{{ company.longitude|stringformat:'s' }}"
+         role="img" aria-label="Розташування підприємства {{ company.name }} на карті"></div>
+  {% else %}
+    <p class="muted">Розташування ще не вказано.</p>
+  {% endif %}
+
+  <h3>Вакансії в роботі</h3>
+  {% if vacancies %}
+    <ul>{% for v in vacancies %}<li><a href="{{ v.get_absolute_url }}">{{ v.title }}</a> · {{ v.get_status_display|lower }}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">Немає.</p>{% endif %}
+</div>
+<script src="{% static 'vendor/leaflet/leaflet.js' %}"></script>
+<script src="{% static 'js/company_map.js' %}"></script>
+{% endblock %}

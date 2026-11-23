@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{% if target %}{{ target.get_full_name|default:target.username }}{% else %}Новий користувач{% endif %} — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="card narrow-lg">
+  <a class="muted small" href="{% url 'recruiting:team_list' %}">← Команда</a>
+  <h1>{% if target %}{{ target.get_full_name|default:target.username }}{% else %}Новий користувач{% endif %}</h1>
+  {% if not target %}<p class="muted">Після збереження передайте людині логін і пароль — вона зможе увійти в CRM за адресою, якою користуєтесь ви.</p>{% endif %}
+  <form method="post" class="form" autocomplete="off">
+    {% csrf_token %}
+    {% include "recruiting/_form_fields.html" %}
+    <div class="actions">
+      <button class="btn primary">Зберегти</button>
+      <a class="btn" href="{% url 'recruiting:team_list' %}">Скасувати</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

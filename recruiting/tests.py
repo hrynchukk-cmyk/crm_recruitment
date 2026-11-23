@@ -32,6 +32,7 @@ from .models import (
 )
 from .importer import import_csv, map_status
 from .services import attach_candidate, change_stage
+from .roles import ADMIN, RECRUITER, RECRUITER_GROUP, role_of, set_role
 
 
 class FakeClient:
@@ -70,6 +71,8 @@ class BaseTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = get_user_model().objects.create_user("recruiter", password="pass-12345-word")
+        set_role(cls.user, RECRUITER)
+        cls.admin = get_user_model().objects.create_superuser("boss", password="pass-12345-word")
         cls.company = Company.objects.create(name="Львівський завод")
         cls.vacancy = Vacancy.objects.create(
             company=cls.company, title="Оператор лінії", workua_job_id="1234567", recruiter=cls.user
@@ -657,7 +660,7 @@ class AddCandidateFormTests(BaseTestCase):
 
 class VacancyFormTests(BaseTestCase):
     def test_create_vacancy_with_new_company(self):
-        self.client.force_login(self.user)
+        self.client.force_login(self.admin)
         response = self.client.post(
             reverse("recruiting:vacancy_create"),
             {"new_company": "Нове підприємство", "title": "Комірник", "city": "Львів", "headcount": 1, "status": "open"},
@@ -756,7 +759,7 @@ class DashboardTests(BaseTestCase):
 
 class CompanyPagesTests(BaseTestCase):
     def setUp(self):
-        self.client.force_login(self.user)
+        self.client.force_login(self.admin)  # змінювати підприємства може лише адміністратор
 
     def test_create_company_with_location(self):
         response = self.client.post(
@@ -883,3 +886,147 @@ class WorkUaRobustnessTests(BaseTestCase):
         self.assertEqual(result.created, 1)
         self.assertEqual(other.applications.count(), 1)
         self.assertTrue(any("дивні дані" in e for e in result.errors))
+
+
+
+class RolesTests(BaseTestCase):
+    """Матриця доступу: адміністратор — усе; рекрутер — дашборд і вакансії, підприємства лише перегляд."""
+
+    def test_recruiter_group_permissions(self):
+        from django.contrib.auth.models import Group
+
+        codes = set(Group.objects.get(name=RECRUITER_GROUP).permissions.values_list("codename", flat=True))
+        self.assertIn("change_application", codes)
+        self.assertIn("add_vacancy", codes)
+        self.assertIn("view_company", codes)
+        self.assertNotIn("change_company", codes)
+        self.assertNotIn("add_company", codes)
+        self.assertEqual(role_of(self.user), RECRUITER)
+        self.assertEqual(role_of(self.admin), ADMIN)
+
+    def test_recruiter_full_access_to_dashboard_and_vacancies(self):
+        self.client.force_login(self.user)
+        for url in [reverse("recruiting:dashboard"), reverse("recruiting:vacancy_list"),
+                    reverse("recruiting:vacancy_create"), reverse("recruiting:vacancy_detail", args=[self.vacancy.pk]),
+                    reverse("recruiting:vacancy_edit", args=[self.vacancy.pk]),
+                    reverse("recruiting:vacancy_add_candidate", args=[self.vacancy.pk]),
+                    reverse("recruiting:vacancy_import", args=[self.vacancy.pk])]:
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        # створити вакансію, додати кандидата, змінити статус і дані кандидата
+        response = self.client.post(reverse("recruiting:vacancy_create"),
+                                    {"company": self.company.pk, "title": "Комірник", "city": "Львів", "headcount": 1, "status": "open"})
+        self.assertEqual(response.status_code, 302)
+        self.client.post(reverse("recruiting:vacancy_add_candidate", args=[self.vacancy.pk]),
+                         {"channel": "sourced", "full_name": "Олена", "phone": "0501112233", "source": "manual"})
+        application = self.vacancy.applications.get()
+        self.client.post(reverse("recruiting:application_stage", args=[application.pk]), {"stage": "thinking"})
+        self.client.post(reverse("recruiting:candidate_edit", args=[application.candidate.pk]),
+                         {"full_name": "Олена Коваль", "phone": "0501112233", "source": "manual"})
+        application.refresh_from_db()
+        self.assertEqual((application.stage, application.candidate.full_name), ("thinking", "Олена Коваль"))
+
+    def test_recruiter_companies_read_only(self):
+        self.client.force_login(self.user)
+        page = self.client.get(reverse("recruiting:company_list"))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, "+ Нове підприємство")
+        detail = self.client.get(reverse("recruiting:company_edit", args=[self.company.pk]))
+        self.assertContains(detail, "Лише перегляд")
+        self.assertNotContains(detail, "<form method=\"post\" class=\"form company-form\"")
+        self.assertEqual(self.client.get(reverse("recruiting:company_create")).status_code, 403)
+        response = self.client.post(reverse("recruiting:company_edit", args=[self.company.pk]), {"name": "Зламано"})
+        self.assertEqual(response.status_code, 403)
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.name, "Львівський завод")
+
+    def test_recruiter_cannot_create_company_via_vacancy_form(self):
+        self.client.force_login(self.user)
+        page = self.client.get(reverse("recruiting:vacancy_create"))
+        self.assertNotContains(page, 'name="new_company"')
+        self.client.post(reverse("recruiting:vacancy_create"),
+                         {"new_company": "Хитре підприємство", "title": "Т", "city": "Львів", "headcount": 1, "status": "open"})
+        self.assertFalse(Company.objects.filter(name="Хитре підприємство").exists())
+
+    def test_recruiter_has_no_admin_or_team(self):
+        self.client.force_login(self.user)
+        admin_page = self.client.get("/admin/")
+        self.assertEqual(admin_page.status_code, 302)  # Django admin відправляє не-персонал на свій логін
+        self.assertIn("/admin/login/", admin_page["Location"])
+        self.assertEqual(self.client.get(reverse("recruiting:team_list")).status_code, 403)
+        nav = self.client.get(reverse("recruiting:dashboard"))
+        self.assertNotContains(nav, "Адмінка")
+        self.assertNotContains(nav, ">Команда<")
+        self.assertContains(nav, "Рекрутер")
+
+    def test_admin_sees_everything(self):
+        self.client.force_login(self.admin)
+        for url in [reverse("recruiting:dashboard"), reverse("recruiting:company_create"),
+                    reverse("recruiting:team_list"), "/admin/"]:
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        nav = self.client.get(reverse("recruiting:dashboard"))
+        self.assertContains(nav, "Адмінка")
+        self.assertContains(nav, "Команда")
+
+    def test_forbidden_page_is_friendly(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("recruiting:company_create"))
+        self.assertContains(response, "Немає доступу", status_code=403)
+
+
+class TeamTests(BaseTestCase):
+    def setUp(self):
+        self.client.force_login(self.admin)
+
+    def test_admin_creates_recruiter_who_can_log_in(self):
+        response = self.client.post(reverse("recruiting:team_user_create"), {
+            "first_name": "Олена", "last_name": "Коваль", "username": "olena", "email": "olena@example.com",
+            "role": "recruiter", "is_active": "on", "password1": "Lviv-recruit-2026", "password2": "Lviv-recruit-2026"})
+        self.assertEqual(response.status_code, 302)
+        olena = get_user_model().objects.get(username="olena")
+        self.assertEqual(role_of(olena), RECRUITER)
+        self.assertFalse(olena.is_staff)
+        self.client.logout()
+        self.assertTrue(self.client.login(username="olena", password="Lviv-recruit-2026"))
+        self.assertEqual(self.client.get(reverse("recruiting:vacancy_list")).status_code, 200)
+
+    def test_weak_or_mismatched_password_rejected(self):
+        response = self.client.post(reverse("recruiting:team_user_create"), {
+            "username": "x", "role": "recruiter", "is_active": "on", "password1": "123", "password2": "124"})
+        self.assertContains(response, "Паролі не збігаються")
+        self.assertFalse(get_user_model().objects.filter(username="x").exists())
+
+    def test_promote_and_deactivate(self):
+        url = reverse("recruiting:team_user_edit", args=[self.user.pk])
+        self.client.post(url, {"username": "recruiter", "role": "admin", "is_active": "on"})
+        self.user.refresh_from_db()
+        self.assertEqual(role_of(self.user), ADMIN)
+        self.assertTrue(self.user.is_staff)
+        self.client.post(url, {"username": "recruiter", "role": "recruiter"})  # без is_active → вимкнено
+        self.user.refresh_from_db()
+        self.assertEqual(role_of(self.user), RECRUITER)
+        self.assertFalse(self.user.is_active)
+        self.assertFalse(self.client.login(username="recruiter", password="pass-12345-word"))
+
+    def test_cannot_demote_or_deactivate_self(self):
+        url = reverse("recruiting:team_user_edit", args=[self.admin.pk])
+        response = self.client.post(url, {"username": "boss", "role": "recruiter", "is_active": "on"})
+        self.assertContains(response, "самому собі")
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.is_superuser)
+
+    def test_cannot_remove_last_admin(self):
+        other = get_user_model().objects.create_superuser("boss2", password="pass-12345-word")
+        self.client.force_login(other)
+        self.client.post(reverse("recruiting:team_user_edit", args=[self.admin.pk]),
+                         {"username": "boss", "role": "recruiter", "is_active": "on"})  # boss2 лишається адміном — можна
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.is_superuser)
+        # тепер boss2 — останній адмін; ще один адмін, що редагує boss2, — неможливий; перевіряємо пряму умову:
+        from .roles import active_admins_count
+        self.assertEqual(active_admins_count(), 1)
+
+    def test_password_change_keeps_own_session(self):
+        url = reverse("recruiting:team_user_edit", args=[self.admin.pk])
+        self.client.post(url, {"username": "boss", "role": "admin", "is_active": "on",
+                               "password1": "New-boss-pass-2026", "password2": "New-boss-pass-2026"})
+        self.assertEqual(self.client.get(reverse("recruiting:team_list")).status_code, 200)

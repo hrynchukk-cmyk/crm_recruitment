@@ -1,5 +1,7 @@
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth import get_user_model, update_session_auth_hash
+from django.contrib.auth.decorators import login_required, permission_required
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -17,11 +19,13 @@ from .forms import (
     NoteForm,
     NoteInlineForm,
     StageForm,
+    TeamUserForm,
     VacancyForm,
 )
 from .importer import import_csv
 from .integrations.workua import WorkUaError, get_client, sync_all, sync_one
 from .models import Application, Candidate, Company, Vacancy
+from .roles import is_admin, role_label
 from .services import add_note, attach_candidate, change_stage, find_existing_candidate
 
 # Кнопки швидкого результату дзвінка на картці кандидата.
@@ -51,6 +55,7 @@ def _channel_count(channel: str, *, new_only: bool = False) -> Count:
 
 
 @login_required
+@permission_required("recruiting.view_vacancy", raise_exception=True)
 def vacancy_list(request):
     status = request.GET.get("status", Vacancy.Status.OPEN)
     C = Application.Channel
@@ -85,6 +90,7 @@ def vacancy_list(request):
 
 
 @login_required
+@permission_required("recruiting.change_vacancy", raise_exception=True)
 @require_POST
 def workua_sync_all(request):
     """Кнопка «Синхронізувати з Work.ua»: вакансії, відгуки, збережені кандидати."""
@@ -100,6 +106,7 @@ def workua_sync_all(request):
 
 
 @login_required
+@permission_required("recruiting.view_vacancy", raise_exception=True)
 def dashboard(request):
     include_paused = bool(request.GET.get("paused"))
     mine = bool(request.GET.get("mine"))
@@ -117,6 +124,7 @@ def dashboard(request):
 
 
 @login_required
+@permission_required("recruiting.view_company", raise_exception=True)
 def company_list(request):
     companies = Company.objects.annotate(
         open_vacancies=Count("vacancies", filter=Q(vacancies__status=Vacancy.Status.OPEN)),
@@ -126,8 +134,19 @@ def company_list(request):
 
 
 @login_required
+@permission_required("recruiting.view_company", raise_exception=True)
 def company_form(request, pk=None):
     company = get_object_or_404(Company, pk=pk) if pk else None
+    can_edit = request.user.has_perm("recruiting.change_company" if company else "recruiting.add_company")
+    if not can_edit:
+        if company is None or request.method == "POST":
+            raise PermissionDenied("Змінювати підприємства може лише адміністратор.")
+        # Рекрутер: картка підприємства лише для перегляду.
+        return render(
+            request,
+            "recruiting/company_detail.html",
+            {"company": company, "vacancies": company.vacancies.exclude(status=Vacancy.Status.CLOSED)},
+        )
     form = CompanyForm(request.POST or None, instance=company)
     if request.method == "POST" and form.is_valid():
         company = form.save()
@@ -147,7 +166,14 @@ def company_form(request, pk=None):
 @login_required
 def vacancy_form(request, pk=None):
     vacancy = get_object_or_404(Vacancy, pk=pk) if pk else None
-    form = VacancyForm(request.POST or None, instance=vacancy, initial=None if vacancy else {"recruiter": request.user})
+    if not request.user.has_perm("recruiting.change_vacancy" if vacancy else "recruiting.add_vacancy"):
+        raise PermissionDenied
+    form = VacancyForm(
+        request.POST or None,
+        instance=vacancy,
+        initial=None if vacancy else {"recruiter": request.user},
+        can_add_company=request.user.has_perm("recruiting.add_company"),
+    )
     if request.method == "POST" and form.is_valid():
         vacancy = form.save()
         messages.success(request, f"Вакансію «{vacancy.title}» збережено.")
@@ -157,6 +183,7 @@ def vacancy_form(request, pk=None):
 
 
 @login_required
+@permission_required("recruiting.view_vacancy", raise_exception=True)
 def vacancy_detail(request, pk):
     vacancy = get_object_or_404(Vacancy.objects.select_related("company", "recruiter"), pk=pk)
     channel = request.GET.get("channel")
@@ -225,6 +252,7 @@ def vacancy_detail(request, pk):
 
 
 @login_required
+@permission_required("recruiting.change_vacancy", raise_exception=True)
 @require_POST
 def vacancy_sync_workua(request, pk):
     vacancy = get_object_or_404(Vacancy, pk=pk)
@@ -238,6 +266,7 @@ def vacancy_sync_workua(request, pk):
 
 
 @login_required
+@permission_required("recruiting.add_candidate", raise_exception=True)
 def vacancy_add_candidate(request, pk):
     vacancy = get_object_or_404(Vacancy, pk=pk)
     initial = {"city": vacancy.city}
@@ -281,6 +310,7 @@ def vacancy_add_candidate(request, pk):
 
 
 @login_required
+@permission_required("recruiting.add_candidate", raise_exception=True)
 def vacancy_import(request, pk):
     vacancy = get_object_or_404(Vacancy, pk=pk)
     form = ImportForm(request.POST or None, request.FILES or None)
@@ -304,6 +334,7 @@ def vacancy_import(request, pk):
 
 
 @login_required
+@permission_required("recruiting.view_application", raise_exception=True)
 def application_detail(request, pk):
     application = get_object_or_404(
         Application.objects.select_related("candidate", "vacancy__company"), pk=pk
@@ -334,6 +365,7 @@ def application_detail(request, pk):
 
 
 @login_required
+@permission_required("recruiting.change_application", raise_exception=True)
 @require_POST
 def application_stage(request, pk):
     application = get_object_or_404(Application.objects.select_related("candidate"), pk=pk)
@@ -365,6 +397,7 @@ def application_stage(request, pk):
 
 
 @login_required
+@permission_required("recruiting.change_application", raise_exception=True)
 @require_POST
 def application_note(request, pk):
     application = get_object_or_404(Application, pk=pk)
@@ -375,6 +408,7 @@ def application_note(request, pk):
 
 
 @login_required
+@permission_required("recruiting.change_application", raise_exception=True)
 @require_POST
 def application_note_inline(request, pk):
     """Зберігає «Примітку» прямо з таблиці кандидатів (як клітинку в Google Таблиці)."""
@@ -393,6 +427,7 @@ def application_note_inline(request, pk):
 
 
 @login_required
+@permission_required("recruiting.view_application", raise_exception=True)
 def application_workua_file(request, pk):
     """Файл резюме з відгуку на Work.ua: отримуємо тимчасове посилання (≈5 хв) і одразу переходимо."""
     application = get_object_or_404(Application.objects.select_related("vacancy"), pk=pk)
@@ -409,6 +444,7 @@ def application_workua_file(request, pk):
 
 
 @login_required
+@permission_required("recruiting.change_application", raise_exception=True)
 @require_POST
 def application_channel(request, pk):
     """Перенести кандидата в інший розділ вакансії (якщо потрапив не туди)."""
@@ -423,6 +459,7 @@ def application_channel(request, pk):
 
 
 @login_required
+@permission_required("recruiting.change_candidate", raise_exception=True)
 def candidate_edit(request, pk):
     candidate = get_object_or_404(Candidate, pk=pk)
     form = CandidateForm(request.POST or None, instance=candidate)
@@ -435,3 +472,39 @@ def candidate_edit(request, pk):
         "recruiting/candidate_form.html",
         {"form": form, "candidate": candidate, "next": request.GET.get("next", "")},
     )
+
+
+# ----------------------------------------------------------------- Команда (лише адміністратор)
+
+
+def admin_required(view):
+    """Лише для адміністраторів CRM (суперкористувачів)."""
+
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        if not is_admin(request.user):
+            raise PermissionDenied("Керувати командою може лише адміністратор.")
+        return view(request, *args, **kwargs)
+
+    wrapper.__name__ = view.__name__
+    return wrapper
+
+
+@admin_required
+def team_list(request):
+    users = get_user_model().objects.order_by("-is_active", "-is_superuser", "first_name", "username").prefetch_related("groups")
+    rows = [{"user": u, "role": role_label(u)} for u in users]
+    return render(request, "recruiting/team_list.html", {"rows": rows})
+
+
+@admin_required
+def team_user_form(request, pk=None):
+    target = get_object_or_404(get_user_model(), pk=pk) if pk else None
+    form = TeamUserForm(request.POST or None, instance=target, acting_user=request.user)
+    if request.method == "POST" and form.is_valid():
+        user = form.save()
+        if user == request.user and form.cleaned_data.get("password1"):
+            update_session_auth_hash(request, user)  # не розлогінювати себе після зміни пароля
+        messages.success(request, f"Користувача «{user.get_full_name() or user.username}» збережено ({role_label(user)}).")
+        return redirect("recruiting:team_list")
+    return render(request, "recruiting/team_form.html", {"form": form, "target": target})
