@@ -1056,3 +1056,34 @@ class DeploymentTests(TestCase):
         self.assertIn("https://crm-test.up.railway.app", origins)
         self.assertTrue(ssl_redirect and secure_cookie)
         self.assertEqual(exempt, ["^healthz/$"])
+
+
+class EnsureAdminTests(TestCase):
+    def run_cmd(self, **env):
+        import io, os
+        from django.core.management import call_command
+
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=False):
+            for key in ("DJANGO_SUPERUSER_USERNAME", "DJANGO_SUPERUSER_PASSWORD", "DJANGO_SUPERUSER_RESET_PASSWORD"):
+                if key not in env:
+                    os.environ.pop(key, None)
+            call_command("ensure_admin", stdout=out)
+        return out.getvalue()
+
+    def test_create_then_keep_then_reset(self):
+        from django.contrib.auth import authenticate
+
+        self.assertIn("Створено адміністратора", self.run_cmd(DJANGO_SUPERUSER_USERNAME="admin", DJANGO_SUPERUSER_PASSWORD="First-pass-1"))
+        out = self.run_cmd(DJANGO_SUPERUSER_USERNAME="admin", DJANGO_SUPERUSER_PASSWORD="Second-pass-2")
+        self.assertIn("вже існує", out)
+        self.assertIsNotNone(authenticate(username="admin", password="First-pass-1"))  # без прапорця пароль не змінюється
+        out = self.run_cmd(DJANGO_SUPERUSER_USERNAME="admin", DJANGO_SUPERUSER_PASSWORD="Second-pass-2",
+                           DJANGO_SUPERUSER_RESET_PASSWORD="1")
+        self.assertIn("скинуто", out)
+        self.assertIsNotNone(authenticate(username="admin", password="Second-pass-2"))
+        self.assertIsNone(authenticate(username="admin", password="First-pass-1"))
+
+    def test_warns_about_quotes_and_template(self):
+        self.assertIn("лапки", self.run_cmd(DJANGO_SUPERUSER_USERNAME="a", DJANGO_SUPERUSER_PASSWORD="'secret'"))
+        self.assertIn("шаблон", self.run_cmd(DJANGO_SUPERUSER_USERNAME="b", DJANGO_SUPERUSER_PASSWORD="<надійний пароль>"))
