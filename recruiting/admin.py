@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Application, ApplicationEvent, Candidate, Company, Vacancy
+from .models import Application, ApplicationEvent, Candidate, Company, Vacancy, WorkUaSyncState
 
 
 @admin.register(Company)
@@ -37,3 +37,13 @@ class ApplicationAdmin(admin.ModelAdmin):
     search_fields = ["candidate__full_name", "candidate__phone", "vacancy__title"]
     autocomplete_fields = ["candidate", "vacancy"]
     inlines = [ApplicationEventInline]
+
+
+@admin.register(WorkUaSyncState)
+class WorkUaSyncStateAdmin(admin.ModelAdmin):
+    list_display = ["__str__", "last_success_at", "last_run_at", "last_summary", "last_error"]
+    readonly_fields = ["last_run_at", "last_success_at", "last_summary", "last_error"]
+    exclude = ["auth_failed_fingerprint"]
+
+    def has_add_permission(self, request):
+        return False

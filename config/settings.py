@@ -64,6 +64,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "recruiting.context_processors.workua",
             ],
         },
     },
@@ -147,12 +148,14 @@ if not DEBUG:
 
 # Інтеграція з Work.ua (див. recruiting/integrations/workua.py).
 WORKUA = {
-    # "disabled" — інтеграція вимкнена; "api" — партнерський API Work.ua.
+    # "disabled" — інтеграція вимкнена; "api" — Work.ua API (логін і пароль кабінету Work.ua).
     "BACKEND": os.environ.get("WORKUA_BACKEND", "disabled"),
-    "API_BASE_URL": os.environ.get("WORKUA_API_BASE_URL", ""),
-    "LOGIN": os.environ.get("WORKUA_LOGIN", ""),
+    "API_BASE_URL": os.environ.get("WORKUA_API_BASE_URL", "") or "https://api.work.ua",
+    "LOGIN": os.environ.get("WORKUA_LOGIN", "").strip(),
     "PASSWORD": os.environ.get("WORKUA_PASSWORD", ""),
     "TIMEOUT": int(os.environ.get("WORKUA_TIMEOUT", "20")),
+    # Як часто фоновий процес (сервіс worker у docker-compose) забирає нове з Work.ua.
+    "SYNC_MINUTES": max(int(os.environ.get("WORKUA_SYNC_MINUTES", "15")), 5),
 }
 
 LOGGING = {

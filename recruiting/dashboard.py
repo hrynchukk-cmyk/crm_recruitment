@@ -61,6 +61,7 @@ class DashboardData:
     rows: list[VacancyRow]
     companies: list[dict] = field(default_factory=list)  # для карти
     missing_location: list = field(default_factory=list)  # підприємства без точки на карті
+    unassigned: list = field(default_factory=list)  # вакансії без підприємства (імпортовані з Work.ua)
     kpis: dict = field(default_factory=dict)
 
 
@@ -97,8 +98,12 @@ def build_dashboard(*, include_paused: bool = False, recruiter=None) -> Dashboar
 
     companies: dict[int, dict] = {}
     missing: dict[int, object] = {}
+    unassigned = []
     for row in rows:
         company = row.vacancy.company
+        if company is None:
+            unassigned.append(row.vacancy)
+            continue
         if not company.has_location:
             missing[company.pk] = company
             continue
@@ -147,5 +152,6 @@ def build_dashboard(*, include_paused: bool = False, recruiter=None) -> Dashboar
         rows=rows,
         companies=list(companies.values()),
         missing_location=sorted(missing.values(), key=lambda c: c.name),
+        unassigned=unassigned,
         kpis=kpis,
     )

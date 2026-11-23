@@ -20,7 +20,7 @@ from .forms import (
     VacancyForm,
 )
 from .importer import import_csv
-from .integrations.workua import WorkUaError, sync_vacancy
+from .integrations.workua import WorkUaError, get_client, sync_all, sync_one
 from .models import Application, Candidate, Company, Vacancy
 from .services import add_note, attach_candidate, change_stage, find_existing_candidate
 
@@ -68,11 +68,35 @@ def vacancy_list(request):
         vacancies = vacancies.filter(status=status)
     if request.GET.get("mine"):
         vacancies = vacancies.filter(recruiter=request.user)
+    unassigned_only = request.GET.get("company") == "none"
+    if unassigned_only:
+        vacancies = vacancies.filter(company__isnull=True)
     return render(
         request,
         "recruiting/vacancy_list.html",
-        {"vacancies": vacancies, "status": status, "statuses": Vacancy.Status.choices},
+        {
+            "vacancies": vacancies,
+            "status": status,
+            "statuses": Vacancy.Status.choices,
+            "unassigned_only": unassigned_only,
+            "unassigned_count": Vacancy.objects.filter(company__isnull=True).exclude(status=Vacancy.Status.CLOSED).count(),
+        },
     )
+
+
+@login_required
+@require_POST
+def workua_sync_all(request):
+    """Кнопка «Синхронізувати з Work.ua»: вакансії, відгуки, збережені кандидати."""
+    try:
+        result = sync_all(user=request.user)
+    except WorkUaError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, result.summary())
+        for error in result.errors[:5]:
+            messages.warning(request, error)
+    return redirect(_safe_next(request, reverse("recruiting:vacancy_list")))
 
 
 @login_required
@@ -205,7 +229,7 @@ def vacancy_detail(request, pk):
 def vacancy_sync_workua(request, pk):
     vacancy = get_object_or_404(Vacancy, pk=pk)
     try:
-        result = sync_vacancy(vacancy, user=request.user)
+        result = sync_one(vacancy, user=request.user)
     except WorkUaError as exc:
         messages.error(request, str(exc))
     else:
@@ -366,6 +390,22 @@ def application_note_inline(request, pk):
     if request.headers.get("X-Requested-With") == "fetch":
         return JsonResponse({"ok": True})
     return redirect(_safe_next(request, application.get_absolute_url()))
+
+
+@login_required
+def application_workua_file(request, pk):
+    """Файл резюме з відгуку на Work.ua: отримуємо тимчасове посилання (≈5 хв) і одразу переходимо."""
+    application = get_object_or_404(Application.objects.select_related("vacancy"), pk=pk)
+    response_id = application.workua_response_id
+    if not (application.workua_has_file and application.vacancy.workua_job_id and response_id.isdigit()):
+        messages.error(request, "Для цього кандидата немає файлу резюме на Work.ua.")
+        return redirect(application)
+    try:
+        url = get_client().response_file_url(application.vacancy.workua_job_id, response_id)
+    except WorkUaError as exc:
+        messages.error(request, str(exc))
+        return redirect(application)
+    return redirect(url)
 
 
 @login_required

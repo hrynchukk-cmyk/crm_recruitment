@@ -407,3 +407,14 @@ h1 .badge { font-size: .8rem; position: relative; top: -3px; margin-left: 4px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
+
+/* ---------- Work.ua: стан синхронізації, попередження ---------- */
+.sync-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: -6px 0 14px; color: var(--muted); font-size: .86rem; }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+.sync-status.has-error .sync-dot { background: var(--warning); }
+.sync-error { flex-basis: 100%; color: var(--warning); }
+.notice { margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; background: var(--warning-50); color: #6e4100;
+  border: 1px solid #f4dfb2; font-size: .92rem; }
+.warn-text { color: var(--warning); font-weight: 560; }
+.workua-line { margin-top: 4px; }
+form[data-busy].busy button { opacity: .65; pointer-events: none; }
