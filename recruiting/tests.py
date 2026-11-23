@@ -815,3 +815,71 @@ class VacancySaveTests(BaseTestCase):
         response = self.client.get(reverse("recruiting:vacancy_list"))
         titles = [v.title for v in response.context["vacancies"]]
         self.assertEqual(titles[0], "Найновіша")
+
+
+class WorkUaRobustnessTests(BaseTestCase):
+    """Справжні відповіді Work.ua можуть відрізнятися від прикладів у документації."""
+
+    def test_bad_dates_do_not_crash(self):
+        self.assertIsNone(workua._parse_dt("0000-00-00 00:00:00"))
+        self.assertIsNone(workua._parse_d("0000-00-00"))
+        self.assertIsNone(workua._safe_date("1990-02-31"))
+        self.assertIsNone(workua.age_from_birth_date(workua._safe_date("0000-00-00")))
+
+    def test_odd_response_shapes(self):
+        def handler(method, path, params):
+            if path == "/jobs/my":  # список замість {"items": ...}, id-рядок, число замість рядка
+                return FakeHttpResponse(200, [{"id": "7000001", "name": 123, "active": "1", "date": "0000-00-00 00:00:00",
+                                               "date_expire": None, "region": None, "contact": [], "salary": None,
+                                               "description": None}])
+            if path.endswith("/responses"):
+                return FakeHttpResponse(200, [{"id": "11", "fio": None, "phone": 380931112233, "birth_date": "0000-00-00",
+                                               "from_type": "unknown", "with_file": "1", "text": None, "cover": None}])
+            if path == "/candidates":
+                return FakeHttpResponse(200, {"items": [{"candidate_id": 5, "info": [], "are_contacts_open": False}]})
+            return FakeHttpResponse(200, {"candidate": None, "resumes": None})
+
+        client, _ = api(handler)
+        [job] = client.my_jobs()
+        self.assertEqual((job.id, job.name, job.active, job.published_on), ("7000001", "123", True, None))
+        [r] = client.job_responses("7000001")
+        self.assertEqual((r.phone, r.age, r.from_type, r.has_file), ("380931112233", None, "send", True))
+        [item] = client.saved_candidates("7000001")
+        cand = client.saved_candidate(item)
+        self.assertEqual(cand.full_name, "Кандидат з Work.ua (ім'я приховане)")
+        self.assertIn("не відкриті", cand.note)
+        # І повна синхронізація з такими даними проходить.
+        result = sync_all(client=client)
+        self.assertEqual(result.jobs_created, 1)
+        self.assertEqual(result.errors, [])
+
+    def test_unexpected_error_becomes_message_not_500(self):
+        class Broken(FakeClient):
+            def my_jobs(self):
+                raise KeyError("items")
+
+        with self.assertRaises(workua.WorkUaError) as ctx:
+            sync_all(client=Broken())
+        self.assertIn("KeyError", str(ctx.exception))
+        self.assertIn("KeyError", WorkUaSyncState.get().last_error)
+
+        self.client.force_login(self.user)
+        with override_settings(WORKUA={"BACKEND": "api", "LOGIN": "a@b.c", "PASSWORD": "x", "SYNC_MINUTES": 15}), \
+                mock.patch.object(workua, "get_client", return_value=Broken()):
+            response = self.client.post(reverse("recruiting:workua_sync_all"), follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Неочікувана помилка під час синхронізації з Work.ua")
+
+    def test_one_bad_vacancy_does_not_stop_others(self):
+        other = Vacancy.objects.create(company=self.company, title="Комірник", workua_job_id="999")
+
+        class HalfBroken(FakeClient):
+            def job_responses(self, job_id, after_id=None):
+                if job_id == "1234567":
+                    raise TypeError("дивні дані")
+                return [resp(301, "Олена", "0501112233")]
+
+        result = sync_all(client=HalfBroken())
+        self.assertEqual(result.created, 1)
+        self.assertEqual(other.applications.count(), 1)
+        self.assertTrue(any("дивні дані" in e for e in result.errors))
