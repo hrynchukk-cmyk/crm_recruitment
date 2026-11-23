@@ -1030,3 +1030,29 @@ class TeamTests(BaseTestCase):
         self.client.post(url, {"username": "boss", "role": "admin", "is_active": "on",
                                "password1": "New-boss-pass-2026", "password2": "New-boss-pass-2026"})
         self.assertEqual(self.client.get(reverse("recruiting:team_list")).status_code, 200)
+
+
+class DeploymentTests(TestCase):
+    def test_healthz_without_login(self):
+        response = self.client.get("/healthz/")
+        self.assertEqual((response.status_code, response.content), (200, b"ok"))
+
+    def test_railway_settings(self):
+        """На Railway домен, HTTPS і хост перевірки здоров'я налаштовуються самі."""
+        import json, os, subprocess, sys
+        from django.conf import settings as dj_settings
+
+        env = {**os.environ, "DJANGO_DEBUG": "0", "DJANGO_SECRET_KEY": "x" * 50,
+               "RAILWAY_ENVIRONMENT_NAME": "production", "RAILWAY_PUBLIC_DOMAIN": "crm-test.up.railway.app"}
+        env.pop("DJANGO_ALLOWED_HOSTS", None)
+        code = ("import json, django, os; os.environ['DJANGO_SETTINGS_MODULE']='config.settings'; django.setup(); "
+                "from django.conf import settings as s; print(json.dumps([s.ALLOWED_HOSTS, s.CSRF_TRUSTED_ORIGINS, "
+                "s.SECURE_SSL_REDIRECT, s.SECURE_REDIRECT_EXEMPT, s.SESSION_COOKIE_SECURE]))")
+        out = subprocess.run([sys.executable, "-c", code], env=env, cwd=dj_settings.BASE_DIR,
+                             capture_output=True, text=True, check=True).stdout
+        hosts, origins, ssl_redirect, exempt, secure_cookie = json.loads(out)
+        self.assertIn("crm-test.up.railway.app", hosts)
+        self.assertIn("healthcheck.railway.app", hosts)
+        self.assertIn("https://crm-test.up.railway.app", origins)
+        self.assertTrue(ssl_redirect and secure_cookie)
+        self.assertEqual(exempt, ["^healthz/$"])

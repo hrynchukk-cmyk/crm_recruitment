@@ -31,7 +31,7 @@ class Command(BaseCommand):
         if options["loop"]:
             return self.loop()
         if not is_enabled():
-            raise CommandError("Інтеграцію з Work.ua не ввімкнено (WORKUA_BACKEND=api, WORKUA_LOGIN, WORKUA_PASSWORD у .env).")
+            raise CommandError("Інтеграцію з Work.ua не ввімкнено (WORKUA_BACKEND=api, WORKUA_LOGIN, WORKUA_PASSWORD).")
         try:
             if options["vacancy"]:
                 result = sync_one(Vacancy.objects.get(pk=options["vacancy"]))
@@ -55,12 +55,12 @@ class Command(BaseCommand):
             try:
                 if not is_enabled():
                     if not warned_disabled:
-                        self.stdout.write("Інтеграцію з Work.ua не ввімкнено в .env — чекаю.")
+                        self.stdout.write("Інтеграцію з Work.ua не ввімкнено (WORKUA_* у .env або Variables на Railway) — чекаю.")
                         warned_disabled = True
                 elif auth_blocked_for_auto_sync():
                     self.stdout.write(
                         "Пропускаю: Work.ua не прийняв поточні логін/пароль. Виправте WORKUA_LOGIN/WORKUA_PASSWORD "
-                        "у .env і перезапустіть CRM (./update.command)."
+                        "(у .env або Variables на Railway) і перезапустіть CRM."
                     )
                 else:
                     result = sync_all()

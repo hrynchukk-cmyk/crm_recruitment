@@ -155,19 +155,9 @@ Python 3.13, Django 5.2, PostgreSQL (у продакшні) або SQLite (ло�
 
 Щоб CRM була доступна рекрутерам з будь-якого комп'ютера чи телефона, її розміщують на сервері з HTTPS. Є два варіанти:
 
-**A. Хмарний хостинг з Docker (Render, Railway тощо)** — без адміністрування сервера.
-Створіть сервіс із цього репозиторію (він збирається з `Dockerfile`), додайте базу PostgreSQL і задайте змінні:
+**A. Railway (рекомендовано)** — без адміністрування сервера: сайт, фонова синхронізація з Work.ua й база PostgreSQL з того самого `Dockerfile`. Покроково: **[DEPLOY_RAILWAY.md](DEPLOY_RAILWAY.md)** (≈15–20 хв, включно з перенесенням даних з комп'ютера).
 
-| Змінна | Значення |
-|---|---|
-| `DATABASE_URL` | видає хостинг для бази PostgreSQL |
-| `DJANGO_SECRET_KEY` | довгий випадковий рядок |
-| `DJANGO_ALLOWED_HOSTS` | домен сервісу, напр. `crm-xxxx.onrender.com` |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://` + той самий домен |
-| `DJANGO_SECURE_COOKIES` | `1` |
-| `DJANGO_SUPERUSER_USERNAME` / `DJANGO_SUPERUSER_PASSWORD` | перший адміністратор, створюється автоматично |
-
-Порт (`PORT`) хостинг задає сам.
+CRM сама підхоплює домен Railway (`RAILWAY_PUBLIC_DOMAIN`), вмикає HTTPS і має сторінку перевірки здоров'я `/healthz/`. На іншому Docker-хостингу задайте `DATABASE_URL`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` (`https://домен`) і запустіть другий сервіс з командою `python manage.py sync_workua --loop`.
 
 **B. Власний VPS.** Встановіть Docker і зробіть усе як у розділі вище. У `.env` вкажіть свій домен у `DJANGO_ALLOWED_HOSTS` і `DJANGO_CSRF_TRUSTED_ORIGINS` та `DJANGO_SECURE_COOKIES=1`. Перед застосунком поставте HTTPS-проксі (наприклад, Caddy).
 

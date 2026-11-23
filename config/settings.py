@@ -30,6 +30,16 @@ if not SECRET_KEY:
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
+# Railway (https://railway.com): платформа сама передає публічний домен сервісу — додаємо його,
+# щоб не налаштовувати домени вручну. Перевірки здоров'я Railway приходять з окремого хоста.
+ON_RAILWAY = bool(os.environ.get("RAILWAY_ENVIRONMENT_NAME") or os.environ.get("RAILWAY_ENVIRONMENT"))
+RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+if RAILWAY_PUBLIC_DOMAIN:
+    ALLOWED_HOSTS.append(RAILWAY_PUBLIC_DOMAIN)
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RAILWAY_PUBLIC_DOMAIN}")
+if ON_RAILWAY:
+    ALLOWED_HOSTS.append("healthcheck.railway.app")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -142,6 +152,9 @@ LOGIN_REDIRECT_URL = "recruiting:vacancy_list"
 LOGOUT_REDIRECT_URL = "login"
 
 if not DEBUG:
+    # У хмарі (Railway) — лише HTTPS; перевірку здоров'я платформа робить по HTTP, тому /healthz/ виключено.
+    SECURE_SSL_REDIRECT = env_bool("DJANGO_SSL_REDIRECT", ON_RAILWAY)
+    SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]
     SESSION_COOKIE_SECURE = env_bool("DJANGO_SECURE_COOKIES", True)
     CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

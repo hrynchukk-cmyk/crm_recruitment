@@ -234,8 +234,8 @@ class WorkUaClient(Protocol):
 
 
 _NOT_CONNECTED = (
-    "Інтеграцію з Work.ua не ввімкнено. Впишіть у файл .env: WORKUA_BACKEND=api, "
-    "WORKUA_LOGIN і WORKUA_PASSWORD (логін і пароль кабінету Work.ua) і перезапустіть CRM."
+    "Інтеграцію з Work.ua не ввімкнено. Задайте WORKUA_BACKEND=api, WORKUA_LOGIN і WORKUA_PASSWORD "
+    "(логін і пароль кабінету Work.ua) — у файлі .env або у Variables на Railway — і перезапустіть CRM."
 )
 
 
