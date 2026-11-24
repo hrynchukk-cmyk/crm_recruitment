@@ -428,3 +428,13 @@ form[data-busy].busy button { opacity: .65; pointer-events: none; }
   padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
 .form #id_role label:has(input:checked) { border-color: var(--primary); background: var(--primary-50); }
 .form input[type=checkbox] { width: auto; margin-right: 8px; }
+
+/* ---------- Перенесення даних ---------- */
+.head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.transfer-grid { display: grid; gap: 16px; max-width: 760px; }
+.transfer-grid .card { padding: 22px 26px; }
+.transfer-grid h2 { margin: 0 0 6px; font-size: 1.1rem; }
+.transfer-counts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; color: var(--text-2); font-size: .92rem; }
+.transfer-counts strong { color: var(--text); }
+.form .field-confirm label { display: flex; align-items: flex-start; gap: 2px; font-weight: 520; }
+.form .field-confirm input[type=checkbox] { margin-top: 4px; }

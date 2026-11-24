@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Перенесення даних — CRM рекрутингу{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="muted small" href="{% url 'recruiting:team_list' %}">← Команда</a>
+    <h1>Перенесення даних</h1>
+    <p class="page-sub">Щоб перенести CRM з комп'ютера в хмару: вивантажте файл у локальній CRM і завантажте його тут, у хмарній.</p>
+  </div>
+</div>
+
+<div class="transfer-grid">
+  <section class="card">
+    <h2>Зараз у цій CRM</h2>
+    <ul class="transfer-counts">
+      <li>Підприємств: <strong>{{ counts.companies }}</strong></li>
+      <li>Вакансій: <strong>{{ counts.vacancies }}</strong></li>
+      <li>Кандидатів: <strong>{{ counts.candidates }}</strong></li>
+      <li>Відгуків і підборів: <strong>{{ counts.applications }}</strong></li>
+      <li>Користувачів: <strong>{{ counts.users }}</strong></li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>1. Вивантажити дані з цієї CRM</h2>
+    <p class="muted">Один файл з усіма підприємствами, вакансіями, кандидатами, статусами, примітками й користувачами.</p>
+    <p class="notice">У файлі персональні дані кандидатів і зашифровані паролі команди. Нікому його не пересилайте й видаліть одразу після перенесення.</p>
+    <a class="btn primary" href="{% url 'recruiting:data_transfer_export' %}">Вивантажити дані</a>
+  </section>
+
+  <section class="card">
+    <h2>2. Завантажити дані в цю CRM</h2>
+    <ul class="muted">
+      <li>Підприємства, вакансії й кандидати в цій CRM буде <strong>замінено</strong> даними з файлу.</li>
+      <li>Користувачів з тим самим логіном буде оновлено, разом з паролем. Нових — додано. Решту не змінено.</li>
+      <li>Якщо щось піде не так, у CRM нічого не зміниться.</li>
+    </ul>
+    <form method="post" enctype="multipart/form-data" class="form" data-busy="Завантажую дані…">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      {% include "recruiting/_field.html" with field=form.file %}
+      <div class="field field-confirm{% if form.confirm.errors %} has-error{% endif %}">
+        <label>{{ form.confirm }} {{ form.confirm.label }}</label>
+        {% for error in form.confirm.errors %}<div class="error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="actions"><button class="btn primary">Завантажити й замінити дані</button></div>
+    </form>
+  </section>
+</div>
+{% endblock %}

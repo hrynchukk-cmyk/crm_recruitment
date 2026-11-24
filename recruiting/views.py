@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -20,6 +20,7 @@ from .forms import (
     NoteInlineForm,
     StageForm,
     TeamUserForm,
+    TransferImportForm,
     VacancyForm,
 )
 from .importer import import_csv
@@ -27,6 +28,7 @@ from .integrations.workua import WorkUaError, get_client, sync_all, sync_one
 from .models import Application, Candidate, Company, Vacancy
 from .roles import is_admin, role_label
 from .services import add_note, attach_candidate, change_stage, find_existing_candidate
+from .transfer import MAX_SIZE as TRANSFER_MAX_SIZE, TransferError, current_counts, export_data, import_data
 
 # Кнопки швидкого результату дзвінка на картці кандидата.
 QUICK_STAGES = [
@@ -508,3 +510,40 @@ def team_user_form(request, pk=None):
         messages.success(request, f"Користувача «{user.get_full_name() or user.username}» збережено ({role_label(user)}).")
         return redirect("recruiting:team_list")
     return render(request, "recruiting/team_form.html", {"form": form, "target": target})
+
+
+@admin_required
+def data_transfer(request):
+    """Перенесення всіх даних між копіями CRM (з комп'ютера в хмару) файлом — без прямого доступу до бази."""
+    form = TransferImportForm(request.POST or None, request.FILES or None)
+    if request.method == "POST" and form.is_valid():
+        upload = form.cleaned_data["file"]
+        if upload.size > TRANSFER_MAX_SIZE:
+            form.add_error("file", "Файл завеликий (максимум 50 МБ).")
+        else:
+            try:
+                result = import_data(upload.read())
+            except TransferError as exc:
+                form.add_error("file", str(exc))
+            else:
+                # Пароль адміністратора міг змінитися на той, що у файлі, — не розлогінюємо його посеред роботи.
+                request.user.refresh_from_db()
+                update_session_auth_hash(request, request.user)
+                messages.success(request, result.summary() + " Паролі користувачів тепер такі самі, як у CRM, з якої вивантажено файл.")
+                if result.weak_password_users:
+                    messages.warning(
+                        request,
+                        "У цих користувачів пароль збігається з логіном: " + ", ".join(result.weak_password_users)
+                        + ". Задайте їм надійні паролі в «Команді» або вимкніть доступ.",
+                    )
+                return redirect("recruiting:data_transfer")
+    return render(request, "recruiting/data_transfer.html", {"form": form, "counts": current_counts()})
+
+
+@admin_required
+def data_transfer_export(request):
+    response = HttpResponse(export_data(), content_type="application/json; charset=utf-8")
+    filename = f"crm-data-{timezone.localdate():%Y-%m-%d}.json"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response["Cache-Control"] = "no-store"
+    return response

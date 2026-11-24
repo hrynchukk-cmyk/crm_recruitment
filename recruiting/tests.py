@@ -1056,3 +1056,137 @@ class DeploymentTests(TestCase):
         self.assertIn("https://crm-test.up.railway.app", origins)
         self.assertTrue(ssl_redirect and secure_cookie)
         self.assertEqual(exempt, ["^healthz/$"])
+
+
+class EnsureAdminTests(TestCase):
+    def run_cmd(self, **env):
+        import io, os
+        from django.core.management import call_command
+
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=False):
+            for key in ("DJANGO_SUPERUSER_USERNAME", "DJANGO_SUPERUSER_PASSWORD", "DJANGO_SUPERUSER_RESET_PASSWORD"):
+                if key not in env:
+                    os.environ.pop(key, None)
+            call_command("ensure_admin", stdout=out)
+        return out.getvalue()
+
+    def test_create_then_keep_then_reset(self):
+        from django.contrib.auth import authenticate
+
+        self.assertIn("Створено адміністратора", self.run_cmd(DJANGO_SUPERUSER_USERNAME="admin", DJANGO_SUPERUSER_PASSWORD="First-pass-1"))
+        out = self.run_cmd(DJANGO_SUPERUSER_USERNAME="admin", DJANGO_SUPERUSER_PASSWORD="Second-pass-2")
+        self.assertIn("вже існує", out)
+        self.assertIsNotNone(authenticate(username="admin", password="First-pass-1"))  # без прапорця пароль не змінюється
+        out = self.run_cmd(DJANGO_SUPERUSER_USERNAME="admin", DJANGO_SUPERUSER_PASSWORD="Second-pass-2",
+                           DJANGO_SUPERUSER_RESET_PASSWORD="1")
+        self.assertIn("скинуто", out)
+        self.assertIsNotNone(authenticate(username="admin", password="Second-pass-2"))
+        self.assertIsNone(authenticate(username="admin", password="First-pass-1"))
+
+    def test_warns_about_quotes_and_template(self):
+        self.assertIn("лапки", self.run_cmd(DJANGO_SUPERUSER_USERNAME="a", DJANGO_SUPERUSER_PASSWORD="'secret'"))
+        self.assertIn("шаблон", self.run_cmd(DJANGO_SUPERUSER_USERNAME="b", DJANGO_SUPERUSER_PASSWORD="<надійний пароль>"))
+
+
+class DataTransferTests(BaseTestCase):
+    """Перенесення даних файлом між копіями CRM (з комп'ютера в хмару)."""
+
+    def setUp(self):
+        self.client.force_login(self.admin)
+        candidate = Candidate.objects.create(full_name="Петро Комірник", phone="0931818875", age=34)
+        self.application, _ = attach_candidate(self.vacancy, candidate, user=self.user)
+        change_stage(self.application, Application.Stage.THINKING, user=self.user, comment="Передзвонити в п'ятницю")
+
+    def export(self) -> bytes:
+        response = self.client.get(reverse("recruiting:data_transfer_export"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment;", response["Content-Disposition"])
+        return response.content
+
+    def upload(self, content: bytes, confirm=True):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        data = {"file": SimpleUploadedFile("crm-data.json", content, content_type="application/json")}
+        if confirm:
+            data["confirm"] = "on"
+        return self.client.post(reverse("recruiting:data_transfer"), data, follow=True)
+
+    def test_only_admin_can_open(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("recruiting:data_transfer")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("recruiting:data_transfer_export")).status_code, 403)
+        self.client.force_login(self.admin)
+        self.assertContains(self.client.get(reverse("recruiting:team_list")), reverse("recruiting:data_transfer"))
+
+    def test_round_trip_restores_everything(self):
+        import json
+
+        content = self.export()
+        payload = json.loads(content)
+        self.assertEqual(payload["format"], "crm-recruitment-transfer")
+        users = [o for o in payload["objects"] if o["model"] == "auth.user"]
+        self.assertTrue(users and all("pk" not in o for o in users))  # користувачі — за логіном, без номерів
+
+        # Після вивантаження дані в CRM змінилися: зайве підприємство, видалений кандидат, інший пароль.
+        Company.objects.create(name="Зайве підприємство")
+        Candidate.objects.all().delete()
+        self.admin.set_password("Changed-pass-99")  # у хмарі адміністратор входить іншим паролем, ніж локально
+        self.admin.save()
+        self.client.force_login(self.admin)
+
+        response = self.upload(content)
+        self.assertContains(response, "Дані перенесено")
+        self.assertEqual(response.redirect_chain[-1][0], reverse("recruiting:data_transfer"))  # не розлогінило
+        self.assertFalse(Company.objects.filter(name="Зайве підприємство").exists())
+        application = Application.objects.get(pk=self.application.pk)
+        self.assertEqual(application.stage, Application.Stage.THINKING)
+        self.assertEqual(application.candidate.phone, "+380931818875")
+        self.assertTrue(application.events.filter(text__contains="п'ятницю").exists())
+        self.assertEqual(Vacancy.objects.get(pk=self.vacancy.pk).recruiter, self.user)
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.check_password("pass-12345-word"))  # пароль — як у файлі
+        # Нові записи після перенесення створюються без конфліктів номерів.
+        self.assertTrue(Company.objects.create(name="Нове після перенесення").pk)
+
+    def test_users_are_matched_by_username(self):
+        content = self.export()
+        # У хмарній базі ті самі люди мають інші номери.
+        get_user_model().objects.create_user("someone-else", password="x-12345-word")
+        self.user.delete()
+        get_user_model().objects.create_user("recruiter", password="cloud-pass-1")
+        self.upload(content)
+        recruiter = get_user_model().objects.get(username="recruiter")
+        self.assertEqual(Vacancy.objects.get(pk=self.vacancy.pk).recruiter, recruiter)
+        self.assertTrue(recruiter.check_password("pass-12345-word"))
+        self.assertEqual(role_of(recruiter), RECRUITER)
+        self.assertTrue(get_user_model().objects.filter(username="someone-else").exists())  # кого немає у файлі — лишається
+
+    def test_bad_files_change_nothing(self):
+        import json
+
+        payload = json.loads(self.export())
+        sneaky = dict(payload, objects=payload["objects"] + [{"model": "recruiting.workuasyncstate", "pk": 1, "fields": {}}])
+        broken = dict(payload, objects=payload["objects"] + [{"model": "recruiting.vacancy", "pk": 999, "fields": {"title": "x", "company": 424242}}])
+        cases = [
+            (b"Name,Phone\n", "Це не файл перенесення CRM"),
+            (json.dumps({"format": "other"}).encode(), "Це не файл перенесення CRM"),
+            (json.dumps(dict(payload, version=99)).encode(), "з іншої версії CRM"),
+            (json.dumps(sneaky).encode(), "не переносить"),
+            (json.dumps(broken).encode(), "у CRM нічого не змінено"),
+        ]
+        for content, error in cases:
+            with self.subTest(error=error):
+                self.assertContains(self.upload(content), error)
+                self.assertEqual(Application.objects.count(), 1)
+                self.assertTrue(Candidate.objects.filter(full_name="Петро Комірник").exists())
+
+    def test_confirmation_required(self):
+        response = self.upload(self.export(), confirm=False)
+        self.assertContains(response, "підтвердити заміну")
+        self.assertNotContains(response, "Дані перенесено")
+
+    def test_warns_about_password_equal_to_username(self):
+        get_user_model().objects.create_user("demo", password="demo")
+        response = self.upload(self.export())
+        self.assertContains(response, "пароль збігається з логіном: demo")
