@@ -356,3 +356,14 @@ class TeamUserForm(forms.ModelForm):
         user.save()
         set_role(user, self.cleaned_data["role"])
         return user
+
+
+class TransferImportForm(forms.Form):
+    file = forms.FileField(
+        label="Файл перенесення (.json)",
+        help_text="Файл, вивантажений кнопкою «Вивантажити дані» в іншій копії CRM.",
+    )
+    confirm = forms.BooleanField(
+        label="Розумію: усі підприємства, вакансії й кандидати в цій CRM буде замінено даними з файлу",
+        error_messages={"required": "Поставте позначку, щоб підтвердити заміну даних."},
+    )
