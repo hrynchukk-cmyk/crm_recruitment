@@ -93,12 +93,20 @@
    ```bash
    cd ~/crm_recruitment && docker compose exec -T db pg_dump -U crm --no-owner --no-acl --clean --if-exists crm > ~/Desktop/crm-backup.sql
    ```
-2. У Railway: сервіс **Postgres** → **Variables** → скопіюйте значення **`DATABASE_PUBLIC_URL`**.
-3. Відновлення в хмарну базу. Вставте скопійоване значення замість `ПУБЛІЧНИЙ_URL`, у лапках:
+2. Тимчасово відкрийте хмарну базу ззовні: сервіс **Postgres** → **Settings** → **Networking** → **TCP Proxy**. Якщо Railway спитає порт, введіть `5432`.
+   Railway покаже рядок на кшталт `interchange.proxy.rlwy.net:22724 → :5432`. З нього вам потрібні дві частини:
+   - до двокрапки — **адреса** (`interchange.proxy.rlwy.net`);
+   - після двокрапки — **зовнішній порт** (`22724`).
+
+   `:5432` праворуч — порт усередині Railway. Ззовні через нього не підключитися.
+3. **Postgres** → **Variables** → іконкою ока подивіться `PGUSER`, `PGPASSWORD` і `PGDATABASE`.
+4. Відновлення в хмарну базу. Підставте свої значення. `PGHOST` — лише адреса, без `:порт`. Пароль залиште в одинарних лапках:
    ```bash
-   docker run --rm -i postgres:16 psql "ПУБЛІЧНИЙ_URL" < ~/Desktop/crm-backup.sql
+   docker run --rm -i -e PGHOST=АДРЕСА.proxy.rlwy.net -e PGPORT=ЗОВНІШНІЙ_ПОРТ -e PGUSER=postgres -e PGPASSWORD='ПАРОЛЬ' -e PGDATABASE=railway postgres:18 psql < ~/Desktop/crm-backup.sql
    ```
-4. У Railway перезапустіть сервіс **web**: **Deployments → ⋮ → Redeploy**.
+   Має посипатися `DROP TABLE`, `CREATE TABLE`, `COPY …`.
+5. У Railway перезапустіть сервіс **web**: **Deployments → ⋮ → Redeploy**.
+6. Закрийте зовнішній доступ: **Postgres** → **Settings** → **Networking** → видаліть TCP Proxy (іконка кошика). Сайту він не потрібен.
 
 Після перенесення у хмарі будуть ті самі користувачі й паролі, що й на вашому комп'ютері: `admin` входить своїм локальним паролем. Резервну копію `crm-backup.sql` з робочого столу після цього видаліть: у ній персональні дані кандидатів.
 
@@ -115,6 +123,9 @@
     3. Видаліть `DJANGO_SUPERUSER_RESET_PASSWORD` → **Deploy**.
   - Що саме сталося, видно в **Deployments → View logs**: рядок «Створено адміністратора…», «…вже існує…» або «Пароль… скинуто».
 - **«Bad Request (400)» на сайті:** домен згенеровано вже після запуску. Сервіс web → **Deployments** → **⋮** → **Redeploy** (не **Restart**).
+- **`could not translate host name …` під час перенесення даних:**
+  - у `PGHOST` потрапив порт (`…proxy.rlwy.net:22724`): порт пишеться окремо, у `PGPORT`;
+  - або там внутрішня адреса `postgres.railway.internal`: вона працює лише всередині Railway, потрібна адреса TCP Proxy.
 - **Синхронізація з Work.ua:**
   - стан видно у вкладці «Вакансії» під заголовком, а також у логах сервісу worker;
   - після зміни змінних Railway пропонує **Deploy** угорі. Натисніть його, щоб зміни застосувалися.
