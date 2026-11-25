@@ -25,7 +25,7 @@ from .forms import (
 )
 from .importer import import_csv
 from .integrations.workua import WorkUaError, get_client, sync_all, sync_one
-from .models import Application, Candidate, Company, Vacancy
+from .models import WORKUA_EXPIRING_DAYS, Application, Candidate, Company, Vacancy, workua_expiring_q, workua_inactive_q
 from .roles import is_admin, role_label
 from .services import add_note, attach_candidate, change_stage, find_existing_candidate
 from .transfer import MAX_SIZE as TRANSFER_MAX_SIZE, TransferError, current_counts, export_data, import_data
@@ -80,6 +80,15 @@ def vacancy_list(request):
     unassigned_only = request.GET.get("company") == "none"
     if unassigned_only:
         vacancies = vacancies.filter(company__isnull=True)
+    # Відкриті в CRM вакансії, чиє оголошення на Work.ua вже не працює або скоро закінчиться.
+    workua_filter = request.GET.get("workua")
+    if workua_filter == "inactive":
+        vacancies = vacancies.filter(workua_inactive_q())
+    elif workua_filter == "expiring":
+        vacancies = vacancies.filter(workua_expiring_q())
+    else:
+        workua_filter = ""
+    open_vacancies = Vacancy.objects.filter(status=Vacancy.Status.OPEN)
     return render(
         request,
         "recruiting/vacancy_list.html",
@@ -89,6 +98,10 @@ def vacancy_list(request):
             "statuses": Vacancy.Status.choices,
             "unassigned_only": unassigned_only,
             "unassigned_count": Vacancy.objects.filter(company__isnull=True).exclude(status=Vacancy.Status.CLOSED).count(),
+            "workua_filter": workua_filter,
+            "workua_inactive_count": open_vacancies.filter(workua_inactive_q()).count(),
+            "workua_expiring_count": open_vacancies.filter(workua_expiring_q()).count(),
+            "workua_expiring_days": WORKUA_EXPIRING_DAYS,
         },
     )
 

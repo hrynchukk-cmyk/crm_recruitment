@@ -13,12 +13,13 @@
       {% if vacancy.workua_url %} · <a href="{{ vacancy.workua_url }}" target="_blank" rel="noopener">на Work.ua ↗</a>{% endif %}
     </div>
     {% if vacancy.workua_job_id %}
+      {% with listing=vacancy.workua_listing %}
       <div class="muted small workua-line">
-        {% if vacancy.workua_active is True %}Оголошення на Work.ua активне{% if vacancy.workua_expires_on %} до {{ vacancy.workua_expires_on|date:"d.m.Y" }}{% endif %}.
-        {% elif vacancy.workua_active is False %}Оголошення на Work.ua неактивне.{% endif %}
+        {% if listing and not vacancy.workua_needs_attention %}<span class="workua-state-{{ listing.state }}">{{ listing.hint }}</span>{% endif %}
         {% if vacancy.workua_synced_at %}Відгуки оновлено {{ vacancy.workua_synced_at|date:"d.m.Y H:i" }}.{% endif %}
         {% if vacancy.workua_street_address %}Адреса у вакансії: {{ vacancy.workua_street_address }}.{% endif %}
       </div>
+      {% endwith %}
     {% endif %}
   </div>
   <div class="actions">
@@ -33,6 +34,19 @@
     <a class="btn primary" href="{% url 'recruiting:vacancy_add_candidate' vacancy.pk %}{% if channel != 'all' %}?channel={{ channel }}{% endif %}">+ Кандидат</a>
   </div>
 </div>
+
+{% if vacancy.workua_needs_attention %}{% with listing=vacancy.workua_listing %}
+  <div class="notice workua-{{ listing.state }}">
+    {% if listing.state == 'inactive' %}
+      <strong>Оголошення на Work.ua неактивне.</strong> {{ listing.hint }} Нових відгуків на цю вакансію не буде, доки ви не продовжите публікацію
+      <a href="{{ vacancy.workua_url }}" target="_blank" rel="noopener">на Work.ua ↗</a>.
+      Якщо людей уже знайшли, закрийте вакансію: <a href="{% url 'recruiting:vacancy_edit' vacancy.pk %}">Редагувати</a> → статус «Закрита».
+    {% else %}
+      <strong>{{ listing.label }}.</strong> {{ listing.hint }} Якщо люди ще потрібні, продовжте публікацію
+      <a href="{{ vacancy.workua_url }}" target="_blank" rel="noopener">на Work.ua ↗</a> заздалегідь.
+    {% endif %}
+  </div>
+{% endwith %}{% endif %}
 
 <nav class="sections">
   {% for value, label, total, new in channel_tabs %}

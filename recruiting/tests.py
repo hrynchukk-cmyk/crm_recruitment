@@ -1282,3 +1282,91 @@ class BoardTests(BaseTestCase):
         self.assertNotContains(response, 'draggable="true"')
         self.assertEqual(self.client.post(self.stage_url(self.anna), {"stage": "viber"},
                                           HTTP_X_REQUESTED_WITH="fetch").status_code, 403)
+
+
+class WorkUaListingTests(BaseTestCase):
+    """Позначки «оголошення на Work.ua неактивне / закінчується»."""
+
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        self.today = timezone.localdate()
+        self.days = lambda n: self.today + timedelta(days=n)
+        self.client.force_login(self.user)
+
+    def make(self, title, *, active=True, expires=None, status=Vacancy.Status.OPEN, job_id=None):
+        return Vacancy.objects.create(company=self.company, title=title, status=status, workua_active=active,
+                                      workua_expires_on=expires, workua_job_id=job_id or str(abs(hash(title)) % 10**7))
+
+    def test_states(self):
+        cases = [
+            (dict(active=True, expires=self.days(10)), "active", "Work.ua до"),
+            (dict(active=True, expires=self.days(3)), "expiring", "закінчується через 3 дні"),
+            (dict(active=True, expires=self.days(1)), "expiring", "закінчується завтра"),
+            (dict(active=True, expires=self.today), "expiring", "закінчується сьогодні"),
+            (dict(active=True, expires=self.days(-1)), "inactive", "Неактивне на Work.ua"),  # Work.ua ще не оновився
+            (dict(active=False, expires=self.days(5)), "inactive", "Неактивне на Work.ua"),
+            (dict(active=True, expires=None), "active", "Активне на Work.ua"),
+        ]
+        for i, (kwargs, state, label) in enumerate(cases):
+            with self.subTest(kwargs=kwargs):
+                listing = self.make(f"Вакансія {i}", **kwargs).workua_listing
+                self.assertEqual(listing.state, state)
+                self.assertIn(label, listing.label)
+        self.assertIsNone(Vacancy.objects.create(title="Без Work.ua").workua_listing)
+        self.assertIsNone(self.make("Ще не синхронізована", active=None).workua_listing)
+
+    def test_only_open_vacancies_need_attention(self):
+        self.assertTrue(self.make("Відкрита", active=False).workua_needs_attention)
+        self.assertFalse(self.make("Закрита", active=False, status=Vacancy.Status.CLOSED).workua_needs_attention)
+        self.assertFalse(self.make("Працює", active=True, expires=self.days(20)).workua_needs_attention)
+
+    def test_vacancy_list_highlights_and_filters(self):
+        self.make("Комірник неактивний", active=False)
+        self.make("Пекар закінчується", active=True, expires=self.days(2))
+        self.make("Водій працює", active=True, expires=self.days(20))
+        self.make("Стара закрита", active=False, status=Vacancy.Status.CLOSED)
+        response = self.client.get(reverse("recruiting:vacancy_list"))
+        self.assertEqual((response.context["workua_inactive_count"], response.context["workua_expiring_count"]), (1, 1))
+        self.assertContains(response, "неактивне оголошення на Work.ua")
+        self.assertContains(response, "badge workua-inactive")
+        self.assertContains(response, "Work.ua: закінчується через 2 дні")
+        names = lambda r: [v.title for v in r.context["vacancies"]]
+        self.assertEqual(names(self.client.get(reverse("recruiting:vacancy_list"), {"workua": "inactive"})), ["Комірник неактивний"])
+        self.assertEqual(names(self.client.get(reverse("recruiting:vacancy_list"), {"workua": "expiring"})), ["Пекар закінчується"])
+        # Для закритої вакансії неактивне оголошення — норма: без червоної позначки.
+        closed = self.client.get(reverse("recruiting:vacancy_list"), {"status": "closed"})
+        self.assertContains(closed, "muted-badge")
+
+    def test_vacancy_page_notice(self):
+        inactive = self.make("Комірник неактивний", active=True, expires=self.days(-2))
+        response = self.client.get(inactive.get_absolute_url())
+        self.assertContains(response, "Оголошення на Work.ua неактивне.")
+        self.assertContains(response, "Термін публікації на Work.ua закінчився")
+        fine = self.make("Водій працює", active=True, expires=self.days(20))
+        response = self.client.get(fine.get_absolute_url())
+        self.assertNotContains(response, "notice notice-workua")
+        self.assertContains(response, "Оголошення на Work.ua активне до")
+
+    def test_dashboard_marks_inactive_listing(self):
+        self.company.latitude, self.company.longitude = 49.8397, 24.0297
+        self.company.save()
+        self.vacancy.workua_active = False
+        self.vacancy.save()
+        response = self.client.get(reverse("recruiting:dashboard"))
+        self.assertContains(response, "badge workua-inactive")
+        alerts = [v["workua_alert"] for c in response.context["data"].companies for v in c["vacancies"]]
+        self.assertIn("Неактивне на Work.ua", alerts)
+
+    def test_single_vacancy_sync_refreshes_listing_state(self):
+        from .integrations.workua import sync_one
+
+        self.vacancy.workua_active = True
+        self.vacancy.save()
+        client = FakeClient(jobs=[WorkUaJob(id="1234567", name="Оператор лінії", active=False, expires_on=self.days(-1))])
+        sync_one(self.vacancy, client)
+        self.vacancy.refresh_from_db()
+        self.assertIs(self.vacancy.workua_active, False)
+        self.assertEqual(self.vacancy.workua_expires_on, self.days(-1))
+        self.assertEqual(self.vacancy.workua_listing.state, "inactive")

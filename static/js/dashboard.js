@@ -21,7 +21,8 @@
   // Рядок вакансії в підказці: назва + дні, кандидати (нових), співбесіди, вийшли / треба.
   function vacancyRow(v) {
     return "<tr>" +
-      '<th scope="row">' + esc(v.title) + (v.status !== "open" ? ' <span class="tip-paused">(' + esc(v.status_label.toLowerCase()) + ")</span>" : "") + "</th>" +
+      '<th scope="row">' + esc(v.title) + (v.status !== "open" ? ' <span class="tip-paused">(' + esc(v.status_label.toLowerCase()) + ")</span>" : "") +
+        (v.workua_alert ? '<div class="tip-workua">' + esc(v.workua_alert) + "</div>" : "") + "</th>" +
       "<td>" + days(v.days_active) + "</td>" +
       "<td>" + v.total + (v.to_call ? ' <span class="tip-muted">+' + v.to_call + "</span>" : "") + "</td>" +
       "<td>" + v.interviews + "</td>" +

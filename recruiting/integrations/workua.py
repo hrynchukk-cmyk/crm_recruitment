@@ -641,13 +641,32 @@ def import_jobs(client: WorkUaClient, result: SyncResult) -> None:
             result.errors.append(f"Вакансія Work.ua {job.id} «{job.name}»: {exc.__class__.__name__}: {exc}")
 
 
+def _apply_job_state(vacancy: Vacancy, job: WorkUaJob) -> list[str]:
+    """Стан оголошення з Work.ua (активне, до якої дати, адреса). Повертає змінені поля для save()."""
+    vacancy.workua_active = job.active
+    vacancy.workua_expires_on = job.expires_on
+    vacancy.workua_street_address = job.street_address[:255]
+    return ["workua_active", "workua_expires_on", "workua_street_address"]
+
+
+def refresh_job_state(client: WorkUaClient, vacancy: Vacancy, result: SyncResult) -> None:
+    """Оновлює стан оголошення однієї вакансії (для кнопки «Оновити з Work.ua» на сторінці вакансії)."""
+    try:
+        job = next((j for j in client.my_jobs() if j.id == vacancy.workua_job_id), None)
+    except FATAL_ERRORS:
+        raise
+    except Exception as exc:  # без стану оголошення відгуки все одно варто забрати
+        logger.exception("Work.ua: не вдалося оновити стан оголошення %s", vacancy.workua_job_id)
+        result.errors.append(f"Стан оголошення на Work.ua не оновлено: {exc}")
+        return
+    if job is not None:
+        vacancy.save(update_fields=[*_apply_job_state(vacancy, job), "updated_at"])
+
+
 def _import_job(client: WorkUaClient, job: WorkUaJob, users_by_email: dict, result: SyncResult) -> None:
     vacancy = Vacancy.objects.filter(workua_job_id=job.id).first()
     if vacancy:
-        vacancy.workua_active = job.active
-        vacancy.workua_expires_on = job.expires_on
-        vacancy.workua_street_address = job.street_address
-        fields = ["workua_active", "workua_expires_on", "workua_street_address"]
+        fields = _apply_job_state(vacancy, job)
         if job.description and not vacancy.description:
             vacancy.description = job.description
             fields.append("description")
@@ -790,4 +809,8 @@ def sync_all(client: WorkUaClient | None = None, user=None) -> SyncResult:
 
 @guarded
 def sync_one(vacancy: Vacancy, client: WorkUaClient | None = None, user=None) -> SyncResult:
-    return sync_vacancy(vacancy, client, user)
+    client = client or get_client()
+    result = SyncResult()
+    if vacancy.workua_job_id:
+        refresh_job_state(client, vacancy, result)
+    return sync_vacancy(vacancy, client, user, result)

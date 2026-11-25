@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load crm %}
 {% block title %}Вакансії — CRM рекрутингу{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -21,8 +22,21 @@
 
 {% if unassigned_count %}
   <div class="notice">
-    <strong>{{ unassigned_count }}</strong> {% if unassigned_count == 1 %}вакансія з Work.ua не має{% else %}вакансій з Work.ua не мають{% endif %} підприємства.
+    <strong>{{ unassigned_count }}</strong> {{ unassigned_count|plural:"вакансія з Work.ua не має,вакансії з Work.ua не мають,вакансій з Work.ua не мають" }} підприємства.
     <a href="?status=all&company=none">Показати</a> й призначте підприємство — тоді вони з'являться на карті й у звітах.
+  </div>
+{% endif %}
+
+{% if workua_inactive_count or workua_expiring_count %}
+  <div class="notice notice-workua">
+    {% if workua_inactive_count %}
+      <div><strong>{{ workua_inactive_count }}</strong> {{ workua_inactive_count|plural:"відкрита вакансія має,відкриті вакансії мають,відкритих вакансій мають" }} неактивне оголошення на Work.ua — нових відгуків на {% if workua_inactive_count == 1 %}неї{% else %}них{% endif %} не буде.
+        <a href="?status=open&workua=inactive">Показати</a>, а потім продовжте публікацію на Work.ua або закрийте вакансію в CRM.</div>
+    {% endif %}
+    {% if workua_expiring_count %}
+      <div><strong>{{ workua_expiring_count }}</strong> {{ workua_expiring_count|plural:"оголошення закінчується,оголошення закінчуються,оголошень закінчуються" }} на Work.ua протягом {{ workua_expiring_days|days }}.
+        <a href="?status=open&workua=expiring">Показати</a></div>
+    {% endif %}
   </div>
 {% endif %}
 
@@ -34,6 +48,12 @@
   <a class="chip {% if request.GET.mine %}active{% endif %}" href="?status={{ status }}{% if not request.GET.mine %}&mine=1{% endif %}">Лише мої</a>
   {% if unassigned_count or unassigned_only %}
     <a class="chip {% if unassigned_only %}active{% endif %}" href="?status=all&company=none">Без підприємства <span class="count">{{ unassigned_count }}</span></a>
+  {% endif %}
+  {% if workua_inactive_count or workua_filter == 'inactive' %}
+    <a class="chip {% if workua_filter == 'inactive' %}active{% endif %}" href="?status=open{% if workua_filter != 'inactive' %}&workua=inactive{% endif %}">Неактивні на Work.ua <span class="count">{{ workua_inactive_count }}</span></a>
+  {% endif %}
+  {% if workua_expiring_count or workua_filter == 'expiring' %}
+    <a class="chip {% if workua_filter == 'expiring' %}active{% endif %}" href="?status=open{% if workua_filter != 'expiring' %}&workua=expiring{% endif %}">Закінчуються на Work.ua <span class="count">{{ workua_expiring_count }}</span></a>
   {% endif %}
 </div>
 
@@ -53,11 +73,14 @@
     <tr{% if request.GET.saved == v.pk|stringformat:"d" %} class="just-saved"{% endif %}>
       <td><a href="{{ v.get_absolute_url }}"><strong>{{ v.title }}</strong></a>
         {% if v.status != 'open' %}<span class="badge">{{ v.get_status_display }}</span>{% endif %}
-        {% if v.workua_job_id and v.workua_active is False %}<span class="badge" title="Оголошення на Work.ua неактивне">не на Work.ua</span>{% endif %}
+        {% with listing=v.workua_listing %}
+        {% if listing and listing.state != 'active' %}<span class="badge workua-{{ listing.state }}{% if v.status != 'open' %} muted-badge{% endif %}" title="{{ listing.hint }}">{{ listing.label }}</span>{% endif %}
         <div class="muted small">
           {% if v.company %}{{ v.company }}{% else %}<a class="warn-text" href="{% url 'recruiting:vacancy_edit' v.pk %}">призначити підприємство</a>{% endif %}
           · {{ v.city }}{% if v.salary %} · {{ v.salary }}{% endif %}
-          · {% if v.recruiter %}{{ v.recruiter.get_full_name|default:v.recruiter.username }}{% else %}без рекрутера{% endif %}</div></td>
+          · {% if v.recruiter %}{{ v.recruiter.get_full_name|default:v.recruiter.username }}{% else %}без рекрутера{% endif %}
+          {% if listing.state == 'active' %}· <span title="{{ listing.hint }}">{{ listing.label }}</span>{% endif %}</div>
+        {% endwith %}</td>
       <td class="num"><a href="{{ v.get_absolute_url }}?channel=response">{{ v.responses }}</a>{% if v.responses_new %} <span class="badge stage-new" title="нові">+{{ v.responses_new }}</span>{% endif %}</td>
       <td class="num"><a href="{{ v.get_absolute_url }}?channel=recommended">{{ v.recommended }}</a>{% if v.recommended_new %} <span class="badge stage-new" title="нові">+{{ v.recommended_new }}</span>{% endif %}</td>
       <td class="num"><a href="{{ v.get_absolute_url }}?channel=sourced">{{ v.sourced }}</a>{% if v.sourced_new %} <span class="badge stage-new" title="нові">+{{ v.sourced_new }}</span>{% endif %}</td>

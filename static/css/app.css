@@ -504,3 +504,12 @@ main.wide { max-width: none; }
 .board-toast { position: fixed; left: 50%; bottom: 24px; z-index: 50; transform: translateX(-50%); max-width: min(520px, calc(100vw - 32px));
   padding: 11px 16px; border-radius: 10px; border: 1px solid #f6d0cd; background: var(--danger-50); color: #8e1f1b;
   box-shadow: var(--shadow-lg); font-weight: 520; }
+
+/* ---------- Стан оголошення на Work.ua ---------- */
+.badge.workua-inactive { background-color: var(--danger-50); color: #ad2521; box-shadow: inset 0 0 0 1px #f6d0cd; }
+.badge.workua-expiring { background-color: var(--warning-50); color: #845300; box-shadow: inset 0 0 0 1px #f4dfb2; }
+.badge.muted-badge { background-color: var(--surface-2); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); }
+.notice-workua { display: grid; gap: 4px; }
+.notice.workua-inactive { background: var(--danger-50); color: #8e1f1b; border-color: #f6d0cd; }
+.workua-state-inactive { color: #ad2521; }
+.tip-workua { margin-top: 2px; color: #ad2521; font-size: .74rem; font-weight: 600; }

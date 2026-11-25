@@ -74,6 +74,7 @@
       <tr>
         <td data-label="Вакансія"><a href="{{ row.vacancy.get_absolute_url }}"><strong>{{ row.vacancy.title }}</strong></a>
           {% if row.vacancy.status != 'open' %}<span class="badge">{{ row.vacancy.get_status_display }}</span>{% endif %}
+          {% if row.vacancy.workua_needs_attention %}{% with listing=row.vacancy.workua_listing %}<span class="badge workua-{{ listing.state }}" title="{{ listing.hint }}">{{ listing.label }}</span>{% endwith %}{% endif %}
           <div class="muted small">{% if row.vacancy.company %}{{ row.vacancy.company }}{% else %}<span class="warn-text">підприємство не призначено</span>{% endif %}</div></td>
         <td class="num" data-label="Активна">{{ row.vacancy.days_active|days }}</td>
         <td class="num" data-label="Кандидатів">{{ row.total }}</td>

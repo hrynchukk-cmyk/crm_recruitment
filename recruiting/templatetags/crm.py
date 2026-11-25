@@ -17,3 +17,10 @@ def uk_plural(n: int, one: str, few: str, many: str) -> str:
 def days(n) -> str:
     """{{ 12|days }} → «12 днів»."""
     return f"{n} {uk_plural(n, 'день', 'дні', 'днів')}"
+
+
+@register.filter
+def plural(n, forms: str) -> str:
+    """{{ n|plural:"вакансія,вакансії,вакансій" }} → форма слова для числа n (без самого числа)."""
+    one, few, many = forms.split(",")
+    return uk_plural(n, one, few, many)
