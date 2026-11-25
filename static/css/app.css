@@ -438,3 +438,69 @@ form[data-busy].busy button { opacity: .65; pointer-events: none; }
 .transfer-counts strong { color: var(--text); }
 .form .field-confirm label { display: flex; align-items: flex-start; gap: 2px; font-weight: 520; }
 .form .field-confirm input[type=checkbox] { margin-top: 4px; }
+
+/* ---------- Дошка кандидатів (вигляд «Дошка» на сторінці вакансії) ---------- */
+main.wide { max-width: none; }
+.view-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+.view-bar .search { margin: 0; flex: 1 1 260px; }
+.view-switch { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); }
+.view-switch a { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 7px; color: var(--text-2);
+  font-weight: 560; font-size: .9rem; }
+.view-switch a:hover { text-decoration: none; background: var(--surface-2); color: var(--text); }
+.view-switch a.active { background: var(--primary-50); color: var(--primary); }
+.view-switch svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.board-hint { margin: -4px 0 10px; }
+.board-hint:empty { display: none; }
+.board { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding: 2px 2px 14px; }
+.board-col { flex: 0 0 236px; display: flex; flex-direction: column; max-height: max(420px, calc(100vh - 170px));
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: background .15s, border-color .15s, box-shadow .15s; }
+.board-col.closed { background: #f1f2f4; }
+.board-col.drop-target { border-color: var(--primary); background: var(--primary-50); box-shadow: 0 0 0 1px var(--primary); }
+.board-col-head { display: flex; align-items: center; gap: 8px; padding: 11px 12px 9px; font-weight: 620; font-size: .9rem; }
+.board-col-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.board-dot[class*="stage-"] { background-color: currentColor; } /* колір тексту статусу — насиченіший за фон */
+.board-dot.stage-rejected_by_candidate { background-color: #b42620; }
+.board-cards { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 64px; padding: 0 8px 10px; overflow-y: auto; }
+.board-cards:not(:has(.board-card))::after { content: "Немає кандидатів"; display: block; padding: 14px 8px; text-align: center;
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); color: var(--muted); font-size: .82rem; }
+.board-card { display: grid; gap: 4px; padding: 10px 11px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: var(--shadow-sm); font-size: .86rem; transition: box-shadow .15s, border-color .15s, opacity .15s; }
+.board-card[draggable] { cursor: grab; }
+.board-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
+.board-card.dragging { opacity: .4; }
+.board-card.saving { opacity: .65; }
+.board-card.moved { animation: board-flash .9s ease; }
+@keyframes board-flash { from { box-shadow: 0 0 0 3px var(--primary-100); border-color: var(--primary); } }
+.board-card-name { font-weight: 650; font-size: .92rem; line-height: 1.3; color: var(--text); }
+.board-card-meta { color: var(--muted); font-size: .82rem; }
+.board-card-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.board-card-contact a { white-space: nowrap; }
+.board-card-contact .viber { margin-left: 0; padding: 0 7px; font-size: .78rem; }
+.board-card-interview { color: #845300; font-weight: 560; }
+.board-card-note { padding: 5px 7px; border-radius: 6px; background: var(--surface-2); color: var(--text-2); font-size: .82rem;
+  white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; }
+.board-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.board-card-tags span { padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2);
+  color: var(--text-2); font-size: .74rem; }
+.board-card-stage { display: none; margin-top: 4px; padding: 6px 8px; font-size: .84rem; }
+@media (hover: none) {
+  .board-card-stage { display: block; width: 100%; }
+  .board-card[draggable] { cursor: auto; }
+}
+@media (max-width: 700px) {
+  .board { scroll-snap-type: x proximity; }
+  .board-col { flex-basis: 82vw; max-height: none; scroll-snap-align: start; }
+  .board-cards { overflow: visible; }
+}
+.board-dialog { width: min(360px, calc(100vw - 32px)); padding: 22px 24px; border: 0; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.board-dialog::backdrop { background: rgba(16, 24, 40, .35); }
+.board-dialog h2 { margin: 0 0 4px; font-size: 1.1rem; }
+.board-dialog label { display: block; margin: 12px 0 6px; font-weight: 600; font-size: .88rem; }
+.board-dialog input { width: 100%; }
+.board-dialog .actions { margin-top: 16px; }
+.board-toast { position: fixed; left: 50%; bottom: 24px; z-index: 50; transform: translateX(-50%); max-width: min(520px, calc(100vw - 32px));
+  padding: 11px 16px; border-radius: 10px; border: 1px solid #f6d0cd; background: var(--danger-50); color: #8e1f1b;
+  box-shadow: var(--shadow-lg); font-weight: 520; }

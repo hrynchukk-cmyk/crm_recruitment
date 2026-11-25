@@ -30,6 +30,8 @@ from .roles import is_admin, role_label
 from .services import add_note, attach_candidate, change_stage, find_existing_candidate
 from .transfer import MAX_SIZE as TRANSFER_MAX_SIZE, TransferError, current_counts, export_data, import_data
 
+VACANCY_VIEWS = ("list", "board")
+
 # Кнопки швидкого результату дзвінка на картці кандидата.
 QUICK_STAGES = [
     Application.Stage.NO_ANSWER,
@@ -191,6 +193,14 @@ def vacancy_detail(request, pk):
     channel = request.GET.get("channel")
     stage = request.GET.get("stage", "active")
     query = request.GET.get("q", "").strip()
+    # Вигляд «Список» або «Дошка» запам'ятовуємо для користувача, щоб не перемикати на кожній вакансії.
+    view = request.GET.get("view")
+    if view in VACANCY_VIEWS:
+        request.session["vacancy_view"] = view
+    else:
+        view = request.session.get("vacancy_view", "list")
+        if view not in VACANCY_VIEWS:
+            view = "list"
 
     all_applications = vacancy.applications.all()
     counts: dict[tuple[str, str], int] = {
@@ -225,16 +235,27 @@ def vacancy_detail(request, pk):
     applications = all_applications.select_related("candidate")
     if in_channel:
         applications = applications.filter(channel=in_channel)
-    if stage == "active":
-        applications = applications.filter(stage__in=Application.ACTIVE_STAGES)
-    elif stage in Application.Stage.values:
-        applications = applications.filter(stage=stage)
     if query:
         applications = applications.filter(
             Q(candidate__full_name__icontains=query)
             | Q(candidate__phone__icontains=query)
             | Q(note__icontains=query)
         )
+
+    columns = []
+    if view == "board":
+        # Дошка: колонка на кожен статус у порядку воронки, зверху — ті, кого перемістили останніми.
+        by_stage: dict[str, list] = {value: [] for value in Application.Stage.values}
+        for application in applications.order_by("-stage_changed_at", "-pk"):
+            by_stage.setdefault(application.stage, []).append(application)
+        columns = [
+            {"value": value, "label": label, "items": by_stage[value], "closed": value in Application.CLOSED_STAGES}
+            for value, label in Application.Stage.choices
+        ]
+    elif stage == "active":
+        applications = applications.filter(stage__in=Application.ACTIVE_STAGES)
+    elif stage in Application.Stage.values:
+        applications = applications.filter(stage=stage)
 
     return render(
         request,
@@ -249,6 +270,8 @@ def vacancy_detail(request, pk):
             "query": query,
             "stage_choices": Application.Stage.choices,
             "district_labels": dict(Candidate.District.choices),
+            "view": view,
+            "columns": columns,
         },
     )
 
@@ -371,8 +394,12 @@ def application_detail(request, pk):
 @require_POST
 def application_stage(request, pk):
     application = get_object_or_404(Application.objects.select_related("candidate"), pk=pk)
+    # Дошка кандидатів змінює статус перетягуванням картки і чекає відповідь JSON, а не перехід на іншу сторінку.
+    wants_json = request.headers.get("X-Requested-With") == "fetch"
     form = StageForm(request.POST)
     if not form.is_valid():
+        if wants_json:
+            return JsonResponse({"ok": False, "error": "Невірні дані статусу."}, status=400)
         messages.error(request, "Невірні дані статусу.")
         return redirect(application)
 
@@ -382,6 +409,10 @@ def application_stage(request, pk):
 
     # Запросили на співбесіду без дати — відкриваємо картку, щоб рекрутер її вказав.
     if new_stage == Application.Stage.INTERVIEW and not interview_at and not application.interview_at:
+        if wants_json:
+            return JsonResponse(
+                {"ok": False, "error": "Вкажіть дату і час співбесіди.", "need_interview_at": True}, status=400
+            )
         messages.info(request, f"{application.candidate}: вкажіть дату і час співбесіди.")
         return redirect(reverse("recruiting:application_detail", args=[pk]) + "?stage=interview#status")
 
@@ -391,7 +422,17 @@ def application_stage(request, pk):
         when = timezone.localtime(interview_at).strftime("%d.%m.%Y %H:%M")
         comment = f"Співбесіда: {when}" + (f"\n{comment}" if comment else "")
 
-    if change_stage(application, new_stage, user=request.user, comment=comment):
+    changed = change_stage(application, new_stage, user=request.user, comment=comment)
+    if wants_json:
+        interview = timezone.localtime(application.interview_at) if application.interview_at else None
+        return JsonResponse({
+            "ok": True,
+            "stage": application.stage,
+            "label": application.get_stage_display(),
+            "interview_at": interview.isoformat() if interview else "",
+            "interview_display": interview.strftime("%d.%m %H:%M") if interview else "",
+        })
+    if changed:
         messages.success(request, f"{application.candidate}: статус «{application.get_stage_display()}».")
     elif comment:
         messages.success(request, "Збережено.")
