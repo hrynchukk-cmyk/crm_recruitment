@@ -131,6 +131,8 @@ def build_dashboard(*, include_paused: bool = False, recruiter=None) -> Dashboar
                 "upcoming_interviews": row.upcoming_interviews,
                 "hired": row.hired,
                 "headcount": row.vacancy.headcount,
+                # Позначка «оголошення на Work.ua неактивне / закінчується» — лише для відкритих вакансій.
+                "workua_alert": row.vacancy.workua_listing.label if row.vacancy.workua_needs_attention else "",
             }
         )
     for entry in companies.values():

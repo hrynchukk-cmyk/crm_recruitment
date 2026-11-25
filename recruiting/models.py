@@ -1,9 +1,42 @@
 import re
-from django.utils import timezone
+from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.urls import reverse
+from django.utils import timezone
+
+from .templatetags.crm import uk_plural
+
+# За скільки днів до кінця публікації на Work.ua попереджати, що оголошення скоро завершиться.
+WORKUA_EXPIRING_DAYS = 3
+
+
+@dataclass(frozen=True)
+class WorkUaListing:
+    """Стан оголошення на Work.ua для позначок у списках: active, expiring або inactive."""
+
+    state: str
+    label: str
+    hint: str
+
+
+def workua_inactive_q() -> Q:
+    """Вакансії, чиє оголошення на Work.ua неактивне або вже закінчилося за датою."""
+    today = timezone.localdate()
+    return ~Q(workua_job_id="") & (Q(workua_active=False) | Q(workua_expires_on__lt=today))
+
+
+def workua_expiring_q() -> Q:
+    """Вакансії, чиє активне оголошення на Work.ua закінчується в найближчі дні."""
+    today = timezone.localdate()
+    return (
+        ~Q(workua_job_id="")
+        & ~Q(workua_active=False)
+        & Q(workua_expires_on__gte=today, workua_expires_on__lte=today + timedelta(days=WORKUA_EXPIRING_DAYS))
+    )
 
 
 class Company(models.Model):
@@ -107,6 +140,37 @@ class Vacancy(models.Model):
     @property
     def workua_url(self) -> str:
         return f"https://www.work.ua/jobs/{self.workua_job_id}/" if self.workua_job_id else ""
+
+    @property
+    def workua_listing(self) -> WorkUaListing | None:
+        """Чи активне оголошення на Work.ua. None — вакансія не з Work.ua або стан ще не синхронізували."""
+        if not self.workua_job_id or (self.workua_active is None and not self.workua_expires_on):
+            return None
+        today = timezone.localdate()
+        expires = self.workua_expires_on
+        if expires and expires < today:
+            return WorkUaListing("inactive", "Неактивне на Work.ua", f"Термін публікації на Work.ua закінчився {expires:%d.%m.%Y}.")
+        if self.workua_active is False:
+            return WorkUaListing("inactive", "Неактивне на Work.ua", "Оголошення на Work.ua неактивне.")
+        if not expires:
+            return WorkUaListing("active", "Активне на Work.ua", "Оголошення на Work.ua активне.")
+        hint = f"Оголошення на Work.ua активне до {expires:%d.%m.%Y}."
+        left = (expires - today).days
+        if left > WORKUA_EXPIRING_DAYS:
+            return WorkUaListing("active", f"Work.ua до {expires:%d.%m}", hint)
+        if left == 0:
+            when = "сьогодні"
+        elif left == 1:
+            when = "завтра"
+        else:
+            when = f"через {left} {uk_plural(left, 'день', 'дні', 'днів')}"
+        return WorkUaListing("expiring", f"Work.ua: закінчується {when}", hint)
+
+    @property
+    def workua_needs_attention(self) -> bool:
+        """Вакансія відкрита, а оголошення на Work.ua вже не працює або от-от закінчиться — нові відгуки не прийдуть."""
+        listing = self.workua_listing
+        return bool(listing and listing.state != "active" and self.status == self.Status.OPEN)
 
     def save(self, *args, **kwargs):
         # Дата закриття ставиться сама, коли вакансію закривають, і знімається, якщо відкрили знову.
