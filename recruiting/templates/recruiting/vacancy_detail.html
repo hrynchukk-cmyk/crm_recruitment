@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ vacancy.title }} — CRM рекрутингу{% endblock %}
+{% block main_class %}{% if view == 'board' %}wide{% endif %}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
@@ -43,6 +44,23 @@
   {% endfor %}
 </nav>
 
+<div class="view-bar">
+  <div class="view-switch" role="group" aria-label="Вигляд">
+    <a class="{% if view == 'list' %}active{% endif %}" href="?channel={{ channel }}&view=list{% if query %}&q={{ query|urlencode }}{% endif %}"{% if view == 'list' %} aria-current="true"{% endif %}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>Список</a>
+    <a class="{% if view == 'board' %}active{% endif %}" href="?channel={{ channel }}&view=board{% if query %}&q={{ query|urlencode }}{% endif %}"{% if view == 'board' %} aria-current="true"{% endif %}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>Дошка</a>
+  </div>
+  <form class="search" method="get">
+    <input type="hidden" name="channel" value="{{ channel }}">
+    {% if view == 'list' %}<input type="hidden" name="stage" value="{{ stage }}">{% endif %}
+    <input type="search" name="q" value="{{ query }}" placeholder="Пошук: ім'я, телефон або примітка">
+  </form>
+</div>
+
+{% if view == 'board' %}
+  {% include "recruiting/_board.html" %}
+{% else %}
 <div class="tabs">
   {% for value, label, count in stage_tabs %}
     {% if count or value == 'active' or value == 'all' or stage == value %}
@@ -51,12 +69,6 @@
     {% endif %}
   {% endfor %}
 </div>
-
-<form class="search" method="get">
-  <input type="hidden" name="channel" value="{{ channel }}">
-  <input type="hidden" name="stage" value="{{ stage }}">
-  <input type="search" name="q" value="{{ query }}" placeholder="Пошук: ім'я, телефон або примітка">
-</form>
 
 <table class="table candidates">
   <thead>
@@ -114,4 +126,5 @@
   {% endfor %}
   </tbody>
 </table>
+{% endif %}
 {% endblock %}

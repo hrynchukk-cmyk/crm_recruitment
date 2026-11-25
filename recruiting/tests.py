@@ -1190,3 +1190,95 @@ class DataTransferTests(BaseTestCase):
         get_user_model().objects.create_user("demo", password="demo")
         response = self.upload(self.export())
         self.assertContains(response, "пароль збігається з логіном: demo")
+
+
+class BoardTests(BaseTestCase):
+    """Вигляд «Дошка»: колонки за статусами, зміна статусу перетягуванням (JSON)."""
+
+    def setUp(self):
+        self.client.force_login(self.user)
+        self.anna, _ = attach_candidate(self.vacancy, Candidate.objects.create(full_name="Анна Нова", phone="0501112233"),
+                                        channel=Application.Channel.RESPONSE)
+        self.ivan, _ = attach_candidate(self.vacancy, Candidate.objects.create(full_name="Іван Думає"),
+                                        channel=Application.Channel.RESPONSE)
+        change_stage(self.ivan, Application.Stage.THINKING)
+        self.olha, _ = attach_candidate(self.vacancy, Candidate.objects.create(full_name="Ольга Відмова"),
+                                        channel=Application.Channel.RESPONSE)
+        change_stage(self.olha, Application.Stage.REJECTED_BY_US)
+        self.url = reverse("recruiting:vacancy_detail", args=[self.vacancy.pk])
+
+    def stage_url(self, application):
+        return reverse("recruiting:application_stage", args=[application.pk])
+
+    def test_board_columns_follow_the_funnel(self):
+        response = self.client.get(self.url, {"view": "board", "channel": "response"})
+        self.assertEqual(response.status_code, 200)
+        columns = response.context["columns"]
+        self.assertEqual([c["value"] for c in columns], list(Application.Stage.values))
+        by_stage = {c["value"]: [a.candidate.full_name for a in c["items"]] for c in columns}
+        self.assertEqual(by_stage["new"], ["Анна Нова"])
+        self.assertEqual(by_stage["thinking"], ["Іван Думає"])
+        self.assertEqual(by_stage["rejected_by_us"], ["Ольга Відмова"])  # на дошці видно й закриті статуси
+        self.assertContains(response, 'class="board"', html=False)
+        self.assertContains(response, "data-can-move")
+        self.assertContains(response, 'draggable="true"')
+        self.assertContains(response, "js/board.js")
+        self.assertNotContains(response, 'class="table candidates"')
+
+    def test_view_choice_is_remembered(self):
+        self.client.get(self.url, {"view": "board"})
+        self.assertEqual(self.client.get(self.url).context["view"], "board")
+        self.client.get(self.url, {"view": "list"})
+        response = self.client.get(self.url)
+        self.assertEqual(response.context["view"], "list")
+        self.assertContains(response, 'class="table candidates"')
+
+    def test_search_filters_cards(self):
+        response = self.client.get(self.url, {"view": "board", "channel": "all", "q": "Іван"})
+        names = [a.candidate.full_name for c in response.context["columns"] for a in c["items"]]
+        self.assertEqual(names, ["Іван Думає"])
+
+    def test_drag_changes_stage_and_records_history(self):
+        response = self.client.post(self.stage_url(self.anna), {"stage": "no_answer"}, HTTP_X_REQUESTED_WITH="fetch")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["stage"], "no_answer")
+        self.anna.refresh_from_db()
+        self.assertEqual(self.anna.stage, Application.Stage.NO_ANSWER)
+        event = self.anna.events.filter(kind=ApplicationEvent.Kind.STAGE).first()
+        self.assertEqual((event.from_stage, event.to_stage, event.author), ("new", "no_answer", self.user))
+        # Повідомлення «статус змінено» не накопичуються для наступної сторінки.
+        self.assertNotContains(self.client.get(self.url), "статус «Не додзвонилися»")
+
+    def test_interview_needs_date(self):
+        response = self.client.post(self.stage_url(self.ivan), {"stage": "interview"}, HTTP_X_REQUESTED_WITH="fetch")
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response.json()["need_interview_at"])
+        self.ivan.refresh_from_db()
+        self.assertEqual(self.ivan.stage, Application.Stage.THINKING)
+
+        response = self.client.post(self.stage_url(self.ivan), {"stage": "interview", "interview_at": "2026-12-03T10:30"},
+                                    HTTP_X_REQUESTED_WITH="fetch")
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["interview_display"], "03.12 10:30")
+        self.ivan.refresh_from_db()
+        self.assertEqual(self.ivan.stage, Application.Stage.INTERVIEW)
+        self.assertIn("Співбесіда: 03.12.2026 10:30", self.ivan.events.first().text)
+
+    def test_bad_stage_returns_json_error(self):
+        response = self.client.post(self.stage_url(self.anna), {"stage": "nonsense"}, HTTP_X_REQUESTED_WITH="fetch")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["ok"])
+
+    def test_read_only_user_cannot_drag(self):
+        from django.contrib.auth.models import Permission
+
+        viewer = get_user_model().objects.create_user("viewer", password="x-12345-word")
+        viewer.user_permissions.add(*Permission.objects.filter(codename__in=["view_vacancy", "view_application"]))
+        self.client.force_login(viewer)
+        response = self.client.get(self.url, {"view": "board"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "data-can-move")
+        self.assertNotContains(response, 'draggable="true"')
+        self.assertEqual(self.client.post(self.stage_url(self.anna), {"stage": "viber"},
+                                          HTTP_X_REQUESTED_WITH="fetch").status_code, 403)

@@ -1,0 +1,64 @@
+{% load static %}
+{% with can_move=perms.recruiting.change_application %}
+<p class="board-hint muted small">
+  {% if can_move %}Перетягніть картку в іншу колонку, щоб змінити статус. На телефоні статус змінюється списком на картці.{% endif %}
+  {% if query %}Показано лише тих, хто підходить під пошук «{{ query }}».{% endif %}
+</p>
+<div class="board" data-board data-csrf="{{ csrf_token }}"{% if can_move %} data-can-move{% endif %}>
+  {% for col in columns %}
+  <section class="board-col{% if col.closed %} closed{% endif %}" data-stage="{{ col.value }}" aria-label="{{ col.label }}">
+    <header class="board-col-head">
+      <span class="board-dot stage-{{ col.value }}" aria-hidden="true"></span>
+      <span class="board-col-title">{{ col.label }}</span>
+      <span class="count" data-count>{{ col.items|length }}</span>
+    </header>
+    <div class="board-cards" data-dropzone>
+      {% for a in col.items %}
+      <article class="board-card" data-id="{{ a.pk }}"{% if can_move %} draggable="true" data-stage-url="{% url 'recruiting:application_stage' a.pk %}"{% endif %} data-interview="{% if a.interview_at %}{{ a.interview_at|date:'c' }}{% endif %}">
+        <a class="board-card-name" href="{{ a.get_absolute_url }}" draggable="false">{{ a.candidate.full_name }}</a>
+        {% if a.candidate.age or a.candidate.district %}
+          <div class="board-card-meta">{% if a.candidate.age %}{{ a.candidate.age }} р.{% endif %}{% if a.candidate.age and a.candidate.district %} · {% endif %}{% if a.candidate.district %}{{ a.candidate.get_district_display }}{% endif %}</div>
+        {% endif %}
+        {% if a.candidate.phone %}
+          <div class="board-card-contact">
+            <a href="tel:{{ a.candidate.phone }}" draggable="false">{{ a.candidate.phone_display }}</a>
+            <a class="viber" href="{{ a.candidate.viber_url }}" draggable="false" title="Відкрити чат з кандидатом у Viber">Viber</a>
+          </div>
+        {% endif %}
+        <div class="board-card-interview small"{% if not a.interview_at or a.stage != 'interview' %} hidden{% endif %}>🗓 Співбесіда <span data-interview-text>{% if a.interview_at %}{{ a.interview_at|date:"d.m H:i" }}{% endif %}</span></div>
+        {% if a.note %}<div class="board-card-note">{{ a.note }}</div>{% endif %}
+        {% if channel == 'all' or a.workua_from and a.workua_from != 'send' %}
+          <div class="board-card-tags">
+            {% if channel == 'all' %}<span>{{ a.get_channel_display }}</span>{% endif %}
+            {% if a.workua_from == 'phonecall' %}<span>📞 дзвінок</span>{% elif a.workua_from == 'messenger' %}<span>💬 месенджер</span>{% elif a.workua_from == 'saved' %}<span>⭐ з кабінету</span>{% endif %}
+          </div>
+        {% endif %}
+        {% if can_move %}
+          <select class="board-card-stage" aria-label="Статус: {{ a.candidate.full_name }}">
+            {% for value, label in stage_choices %}<option value="{{ value }}" {% if value == a.stage %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+
+{% if can_move %}
+<dialog class="board-dialog" id="interview-dialog">
+  <form method="dialog">
+    <h2>Дата співбесіди</h2>
+    <p class="muted small" data-dialog-name></p>
+    <label for="interview-at">Дата і час</label>
+    <input type="datetime-local" id="interview-at" required>
+    <div class="actions">
+      <button class="btn primary" value="ok">Запросити</button>
+      <button class="btn" value="cancel" formnovalidate>Скасувати</button>
+    </div>
+  </form>
+</dialog>
+<div class="board-toast" role="alert" hidden></div>
+<script src="{% static 'js/board.js' %}" defer></script>
+{% endif %}
+{% endwith %}

@@ -51,7 +51,7 @@
   {% endif %}
 
   <div class="app-main">
-    <main>
+    <main class="{% block main_class %}{% endblock %}">
       {% if messages %}
         <ul class="messages" role="status">
           {% for message in messages %}<li class="msg-{{ message.tags }}">{{ message }}</li>{% endfor %}
